@@ -270,6 +270,7 @@ export default defineComponent({
     const updating = ref(false)
     const showAddRow = ref(false)
     const editingId = ref(null)
+    const plaidLoading = ref(false)
     
     const accountTypeOptions = computed(() => {
       return accountTypes.value.map(type => ({
