@@ -40,6 +40,11 @@ export default {
   // Authentication
   async login(email, password) {
     try {
+      // Check if auth is available
+      if (!auth) {
+        throw new Error('Firebase Auth is not initialized. Please enable Authentication in Firebase Console.')
+      }
+
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       return {
         success: true,
@@ -50,7 +55,22 @@ export default {
         }
       }
     } catch (error) {
-      throw new Error(error.message)
+      // Provide more helpful error messages
+      let errorMessage = error.message
+      
+      if (error.code === 'auth/configuration-not-found') {
+        errorMessage = 'Firebase Authentication is not enabled. Please enable Email/Password authentication in Firebase Console.'
+      } else if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.'
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password.'
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.'
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed login attempts. Please try again later.'
+      }
+      
+      throw new Error(errorMessage)
     }
   },
 
