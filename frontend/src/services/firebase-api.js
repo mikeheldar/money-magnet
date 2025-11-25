@@ -981,14 +981,15 @@ export default {
       if (!userId) throw new Error('Not authenticated')
 
       // Use Firebase Functions callable
-      const { getFunctions, httpsCallable } = await import('firebase/functions')
-      const functions = getFunctions()
+      const { httpsCallable } = await import('firebase/functions')
+      const { functions } = await import('../config/firebase')
       const createLinkToken = httpsCallable(functions, 'createPlaidLinkToken')
       
       const result = await createLinkToken()
       return result.data.link_token
     } catch (error) {
-      throw new Error(`Failed to create Plaid link token: ${error.message}`)
+      console.error('Plaid link token error:', error)
+      throw new Error(`Failed to create Plaid link token: ${error.message || error.code || 'Unknown error'}`)
     }
   },
 
@@ -998,14 +999,15 @@ export default {
       if (!userId) throw new Error('Not authenticated')
 
       // Use Firebase Functions callable
-      const { getFunctions, httpsCallable } = await import('firebase/functions')
-      const functions = getFunctions()
+      const { httpsCallable } = await import('firebase/functions')
+      const { functions } = await import('../config/firebase')
       const exchangeToken = httpsCallable(functions, 'exchangePlaidToken')
       
       const result = await exchangeToken({ publicToken })
       return result.data
     } catch (error) {
-      throw new Error(`Failed to exchange Plaid token: ${error.message}`)
+      console.error('Plaid exchange token error:', error)
+      throw new Error(`Failed to exchange Plaid token: ${error.message || error.code || 'Unknown error'}`)
     }
   },
 
@@ -1015,14 +1017,15 @@ export default {
       if (!userId) throw new Error('Not authenticated')
 
       // Use Firebase Functions callable
-      const { getFunctions, httpsCallable } = await import('firebase/functions')
-      const functions = getFunctions()
+      const { httpsCallable } = await import('firebase/functions')
+      const { functions } = await import('../config/firebase')
       const syncAccounts = httpsCallable(functions, 'syncPlaidAccounts')
       
       const result = await syncAccounts({ accessToken })
       return result.data.accounts
     } catch (error) {
-      throw new Error(`Failed to sync Plaid accounts: ${error.message}`)
+      console.error('Plaid sync accounts error:', error)
+      throw new Error(`Failed to sync Plaid accounts: ${error.message || error.code || 'Unknown error'}`)
     }
   }
 }

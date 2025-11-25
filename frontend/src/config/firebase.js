@@ -22,7 +22,8 @@ const app = initializeApp(firebaseConfig)
 // Initialize Firebase services
 export const auth = getAuth(app)
 export const db = getFirestore(app)
-export const functions = getFunctions(app)
+// Initialize Functions with default region (us-central1)
+export const functions = getFunctions(app, 'us-central1')
 
 // Initialize Analytics (only in browser, not SSR)
 let analytics = null
