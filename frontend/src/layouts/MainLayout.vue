@@ -11,18 +11,28 @@
           @click="leftDrawerOpen = !leftDrawerOpen"
         />
 
-            <q-toolbar-title style="font-weight: 600;">
-              Money Magnet
-            </q-toolbar-title>
+        <q-toolbar-title style="font-weight: 600;">
+          Money Magnet
+        </q-toolbar-title>
 
-        <q-btn
+        <q-btn-dropdown
           flat
           dense
           round
-          icon="logout"
-          aria-label="Logout"
-          @click="logout"
-        />
+          icon="account_circle"
+          aria-label="Account"
+        >
+          <q-list>
+            <q-item clickable v-close-popup @click="logout">
+              <q-item-section avatar>
+                <q-icon name="logout" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Sign Out</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-btn-dropdown>
       </q-toolbar>
     </q-header>
 
@@ -115,6 +125,22 @@
             <q-item-label caption>Manage Types & Categories</q-item-label>
           </q-item-section>
         </q-item>
+
+        <q-separator spaced />
+
+        <q-item
+          clickable
+          v-ripple
+          @click="logout"
+        >
+          <q-item-section avatar>
+            <q-icon name="logout" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Sign Out</q-item-label>
+          </q-item-section>
+        </q-item>
       </q-list>
     </q-drawer>
 
@@ -127,20 +153,30 @@
 <script>
     import { defineComponent, ref } from 'vue'
     import { useRouter } from 'vue-router'
+    import { useQuasar } from 'quasar'
     import firebaseApi from '../services/firebase-api'
+    import { auth } from '../config/firebase'
 
     export default defineComponent({
       name: 'MainLayout',
       setup() {
         const router = useRouter()
+        const $q = useQuasar()
         const leftDrawerOpen = ref(false)
 
         const logout = async () => {
           try {
             await firebaseApi.logout()
+            localStorage.removeItem('authToken')
+            $q.notify({
+              type: 'positive',
+              message: 'Signed out successfully',
+              position: 'top'
+            })
+            router.push('/login')
           } catch (err) {
             console.error('Logout error:', err)
-          } finally {
+            // Still redirect even if logout fails
             localStorage.removeItem('authToken')
             router.push('/login')
           }
