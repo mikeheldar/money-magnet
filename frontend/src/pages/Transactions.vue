@@ -1,11 +1,11 @@
 <template>
   <q-page padding>
-    <div class="row q-col-gutter-md">
-      <div class="col-12">
-        <q-card style="border-radius: 12px;">
-          <q-card-section>
-            <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Transactions</div>
-            
+    <div class="col-12">
+      <q-card style="border-radius: 12px;">
+        <q-card-section>
+          <div class="row items-center q-mb-md">
+            <div class="text-h5" style="color: #3BA99F; font-weight: 600;">Transactions</div>
+            <q-space />
             <q-btn-toggle
               v-model="period"
               toggle-color="primary"
@@ -16,127 +16,240 @@
               ]"
               @update:model-value="loadTransactions"
             />
-          </q-card-section>
-        </q-card>
-      </div>
-
-      <div class="col-12 col-md-6">
-        <q-card style="border-radius: 12px;">
-          <q-card-section>
-            <div class="text-h6 q-mb-md" style="color: #3BA99F; font-weight: 600;">Add Transaction</div>
-            
-            <q-form @submit="onAddTransaction" class="q-gutter-md">
-              <q-input
-                v-model="newTransaction.amount"
-                label="Amount"
-                type="number"
-                step="0.01"
-                outlined
-                :rules="[val => val > 0 || 'Amount must be greater than 0']"
-              />
-
-              <q-input
-                v-model="newTransaction.date"
-                label="Date"
-                type="date"
-                outlined
-                :rules="[val => !!val || 'Date is required']"
-              />
-
-              <q-select
-                v-model="newTransaction.type"
-                :options="['income', 'expense']"
-                label="Type"
-                outlined
-                :rules="[val => !!val || 'Type is required']"
-              />
-
-              <q-input
-                v-model="newTransaction.description"
-                label="Description"
-                outlined
-              />
-
-              <q-input
-                v-model="newTransaction.category"
-                label="Category"
-                outlined
-              />
-
-              <q-select
-                v-model="newTransaction.account_id"
-                :options="accountOptions"
-                option-label="name"
-                option-value="id"
-                label="Account (optional)"
-                outlined
-                clearable
-                emit-value
-                map-options
-              />
-
+          </div>
+          
+          <q-table
+            :rows="displayRows"
+            :columns="columns"
+            row-key="id"
+            flat
+            bordered
+            :loading="loading"
+            :pagination="{ rowsPerPage: 0 }"
+            class="transactions-table"
+          >
+            <template v-slot:top>
               <q-btn
-                unelevated
                 color="primary"
+                icon="add"
                 label="Add Transaction"
-                type="submit"
-                :loading="adding"
-                class="full-width"
+                @click="showAddRow = true"
+                :disable="showAddRow"
               />
-            </q-form>
-          </q-card-section>
-        </q-card>
-      </div>
+            </template>
 
-      <div class="col-12 col-md-6">
-        <q-card style="border-radius: 12px;">
-          <q-card-section>
-            <div class="text-h6 q-mb-md" style="color: #3BA99F; font-weight: 600;">Transaction List</div>
-            
-            <q-list v-if="transactions.length > 0" separator>
-              <q-item
-                v-for="transaction in transactions"
-                :key="transaction.id"
-              >
-                <q-item-section>
-                  <q-item-label>{{ transaction.description || 'No description' }}</q-item-label>
-                  <q-item-label caption>
-                    {{ formatDate(transaction.date) }}
-                    <span v-if="transaction.category_name"> • {{ transaction.category_name }}</span>
-                    <span v-if="transaction.account"> • {{ transaction.account.name }}</span>
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <q-item-label
-                    :class="transaction.amount >= 0 ? 'text-positive' : 'text-negative'"
-                  >
-                    ${{ formatCurrency(Math.abs(transaction.amount)) }}
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <q-btn
-                    flat
-                    round
+            <template v-slot:body="props">
+              <!-- Add new row at top -->
+              <template v-if="showAddRow && props.rowIndex === 0">
+                <q-tr key="add-row">
+                  <q-td colspan="7">
+                    <div class="row q-col-gutter-sm items-center q-pa-sm">
+                      <div class="col-2">
+                        <q-input
+                          v-model="newTransaction.date"
+                          label="Date"
+                          type="date"
+                          dense
+                          outlined
+                          :rules="[val => !!val || 'Required']"
+                        />
+                      </div>
+                      <div class="col-2">
+                        <q-input
+                          v-model="newTransaction.description"
+                          label="Description"
+                          dense
+                          outlined
+                        />
+                      </div>
+                      <div class="col-1">
+                        <q-select
+                          v-model="newTransaction.type"
+                          :options="['income', 'expense']"
+                          label="Type"
+                          dense
+                          outlined
+                          :rules="[val => !!val || 'Required']"
+                        />
+                      </div>
+                      <div class="col-1">
+                        <q-input
+                          v-model="newTransaction.amount"
+                          label="Amount"
+                          type="number"
+                          step="0.01"
+                          dense
+                          outlined
+                          :rules="[val => val > 0 || 'Required']"
+                        />
+                      </div>
+                      <div class="col-2">
+                        <q-select
+                          v-model="newTransaction.account_id"
+                          :options="accountOptions"
+                          option-label="name"
+                          option-value="id"
+                          label="Account"
+                          dense
+                          outlined
+                          clearable
+                          emit-value
+                          map-options
+                        />
+                      </div>
+                      <div class="col-2">
+                        <q-input
+                          v-model="newTransaction.category"
+                          label="Category"
+                          dense
+                          outlined
+                        />
+                      </div>
+                      <div class="col-2">
+                        <q-btn
+                          flat
+                          dense
+                          icon="check"
+                          color="positive"
+                          @click="onAddTransaction"
+                          :loading="adding"
+                        />
+                        <q-btn
+                          flat
+                          dense
+                          icon="close"
+                          color="negative"
+                          @click="cancelAdd"
+                        />
+                      </div>
+                    </div>
+                  </q-td>
+                </q-tr>
+              </template>
+
+              <!-- Regular transaction rows -->
+              <q-tr :props="props" v-else>
+                <q-td v-if="editingId === props.row.id">
+                  <q-input
+                    v-model="editingTransaction.date"
+                    type="date"
                     dense
-                    icon="delete"
-                    color="negative"
-                    @click="deleteTransaction(transaction.id)"
+                    outlined
                   />
-                </q-item-section>
-              </q-item>
-            </q-list>
-            <div v-else class="text-center text-grey q-pa-md">
-              No transactions found
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
+                </q-td>
+                <q-td v-else>
+                  {{ formatDate(props.row.date) }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-input
+                    v-model="editingTransaction.description"
+                    dense
+                    outlined
+                  />
+                </q-td>
+                <q-td v-else>
+                  {{ props.row.description || 'No description' }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-select
+                    v-model="editingTransaction.type"
+                    :options="['income', 'expense']"
+                    dense
+                    outlined
+                  />
+                </q-td>
+                <q-td v-else>
+                  {{ props.row.type }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-input
+                    v-model="editingTransaction.amount"
+                    type="number"
+                    step="0.01"
+                    dense
+                    outlined
+                  />
+                </q-td>
+                <q-td v-else :class="props.row.type === 'income' ? 'text-positive' : 'text-negative'">
+                  ${{ formatCurrency(Math.abs(props.row.amount)) }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-select
+                    v-model="editingTransaction.account_id"
+                    :options="accountOptions"
+                    option-label="name"
+                    option-value="id"
+                    dense
+                    outlined
+                    clearable
+                    emit-value
+                    map-options
+                  />
+                </q-td>
+                <q-td v-else>
+                  {{ props.row.account_name || '-' }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-input
+                    v-model="editingTransaction.category"
+                    dense
+                    outlined
+                  />
+                </q-td>
+                <q-td v-else>
+                  {{ props.row.category_name || '-' }}
+                </q-td>
+
+                <q-td>
+                  <div v-if="editingId === props.row.id">
+                    <q-btn
+                      flat
+                      dense
+                      icon="check"
+                      color="positive"
+                      @click="onUpdateTransaction"
+                      :loading="updating"
+                    />
+                    <q-btn
+                      flat
+                      dense
+                      icon="close"
+                      color="negative"
+                      @click="cancelEdit"
+                    />
+                  </div>
+                  <div v-else>
+                    <q-btn
+                      flat
+                      dense
+                      icon="edit"
+                      @click="startEdit(props.row)"
+                    />
+                    <q-btn
+                      flat
+                      dense
+                      icon="delete"
+                      color="negative"
+                      @click="deleteTransaction(props.row.id)"
+                    />
+                  </div>
+                </q-td>
+              </q-tr>
+            </template>
+          </q-table>
+        </q-card-section>
+      </q-card>
     </div>
   </q-page>
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, watch } from 'vue'
+import { defineComponent, ref, onMounted, watch, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 
@@ -147,7 +260,21 @@ export default defineComponent({
     const period = ref('monthly')
     const transactions = ref([])
     const accounts = ref([])
+    const loading = ref(false)
     const adding = ref(false)
+    const updating = ref(false)
+    const showAddRow = ref(false)
+    const editingId = ref(null)
+    
+    const columns = [
+      { name: 'date', label: 'Date', field: 'date', align: 'left', sortable: true },
+      { name: 'description', label: 'Description', field: 'description', align: 'left', sortable: true },
+      { name: 'type', label: 'Type', field: 'type', align: 'left', sortable: true },
+      { name: 'amount', label: 'Amount', field: 'amount', align: 'right', sortable: true },
+      { name: 'account', label: 'Account', field: 'account_name', align: 'left', sortable: true },
+      { name: 'category', label: 'Category', field: 'category_name', align: 'left', sortable: true },
+      { name: 'actions', label: 'Actions', field: 'actions', align: 'center', sortable: false }
+    ]
     
     const newTransaction = ref({
       amount: '',
@@ -158,20 +285,36 @@ export default defineComponent({
       account_id: null
     })
 
+    const editingTransaction = ref({
+      id: null,
+      amount: '',
+      date: '',
+      type: 'expense',
+      description: '',
+      category: '',
+      account_id: null
+    })
+
     const accountOptions = ref([])
 
+    const displayRows = computed(() => {
+      return transactions.value
+    })
+
     const formatCurrency = (value) => {
-      return Number(value).toLocaleString('en-US', {
+      return Number(value || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       })
     }
 
     const formatDate = (dateString) => {
+      if (!dateString) return ''
       return new Date(dateString).toLocaleDateString()
     }
 
     const loadTransactions = async () => {
+      loading.value = true
       try {
         transactions.value = await firebaseApi.getTransactions({ period: period.value })
       } catch (err) {
@@ -179,6 +322,8 @@ export default defineComponent({
           type: 'negative',
           message: 'Failed to load transactions'
         })
+      } finally {
+        loading.value = false
       }
     }
 
@@ -194,10 +339,30 @@ export default defineComponent({
       }
     }
 
+    const cancelAdd = () => {
+      showAddRow.value = false
+      newTransaction.value = {
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+        type: 'expense',
+        description: '',
+        category: '',
+        account_id: null
+      }
+    }
+
     const onAddTransaction = async () => {
+      if (!newTransaction.value.amount || !newTransaction.value.date || !newTransaction.value.type) {
+        $q.notify({
+          type: 'negative',
+          message: 'Amount, date, and type are required'
+        })
+        return
+      }
+
       adding.value = true
       try {
-          await firebaseApi.createTransaction({
+        await firebaseApi.createTransaction({
           ...newTransaction.value,
           amount: parseFloat(newTransaction.value.amount)
         })
@@ -207,26 +372,76 @@ export default defineComponent({
           message: 'Transaction added successfully'
         })
         
-        // Reset form
-        newTransaction.value = {
-          amount: '',
-          date: new Date().toISOString().split('T')[0],
-          type: 'expense',
-          description: '',
-          category: '',
-          account_id: null
-        }
-        
-        // Reload data
+        cancelAdd()
         await loadTransactions()
         await loadAccounts()
       } catch (err) {
         $q.notify({
           type: 'negative',
-          message: err.response?.data?.error || 'Failed to add transaction'
+          message: err.message || 'Failed to add transaction'
         })
       } finally {
         adding.value = false
+      }
+    }
+
+    const startEdit = (transaction) => {
+      editingId.value = transaction.id
+      editingTransaction.value = {
+        id: transaction.id,
+        amount: Math.abs(transaction.amount),
+        date: transaction.date,
+        type: transaction.type,
+        description: transaction.description || '',
+        category: transaction.category || '',
+        account_id: transaction.account_id || null
+      }
+    }
+
+    const cancelEdit = () => {
+      editingId.value = null
+      editingTransaction.value = {
+        id: null,
+        amount: '',
+        date: '',
+        type: 'expense',
+        description: '',
+        category: '',
+        account_id: null
+      }
+    }
+
+    const onUpdateTransaction = async () => {
+      if (!editingTransaction.value.amount || !editingTransaction.value.date || !editingTransaction.value.type) {
+        $q.notify({
+          type: 'negative',
+          message: 'Amount, date, and type are required'
+        })
+        return
+      }
+
+      updating.value = true
+      try {
+        await firebaseApi.updateTransaction(editingTransaction.value.id, {
+          ...editingTransaction.value,
+          amount: parseFloat(editingTransaction.value.amount)
+        })
+        
+        $q.notify({
+          type: 'positive',
+          message: 'Transaction updated successfully'
+        })
+        
+        cancelEdit()
+        await loadTransactions()
+        await loadAccounts()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to update transaction'
+        })
+      } finally {
+        updating.value = false
       }
     }
 
@@ -268,16 +483,33 @@ export default defineComponent({
       period,
       transactions,
       accounts,
-      newTransaction,
       accountOptions,
+      columns,
+      loading,
       adding,
+      updating,
+      showAddRow,
+      editingId,
+      newTransaction,
+      editingTransaction,
+      displayRows,
       formatCurrency,
       formatDate,
       loadTransactions,
+      cancelAdd,
       onAddTransaction,
+      startEdit,
+      cancelEdit,
+      onUpdateTransaction,
       deleteTransaction
     }
   }
 })
 </script>
+
+<style scoped>
+.transactions-table {
+  font-size: 14px;
+}
+</style>
 
