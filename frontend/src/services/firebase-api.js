@@ -989,7 +989,20 @@ export default {
       return result.data.link_token
     } catch (error) {
       console.error('Plaid link token error:', error)
-      throw new Error(`Failed to create Plaid link token: ${error.message || error.code || 'Unknown error'}`)
+      console.error('Error code:', error.code)
+      console.error('Error details:', error.details)
+      
+      // Extract more detailed error message
+      let errorMessage = 'Unknown error'
+      if (error.details) {
+        errorMessage = error.details.message || error.details
+      } else if (error.message) {
+        errorMessage = error.message
+      } else if (error.code) {
+        errorMessage = `Error code: ${error.code}`
+      }
+      
+      throw new Error(`Failed to create Plaid link token: ${errorMessage}`)
     }
   },
 

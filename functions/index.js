@@ -4,24 +4,55 @@ const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 
 admin.initializeApp();
 
+// Get Plaid credentials from config
+const getPlaidConfig = () => {
+  try {
+    const config = functions.config();
+    const clientId = config?.plaid?.client_id || process.env.PLAID_CLIENT_ID;
+    const secret = config?.plaid?.secret || process.env.PLAID_SECRET;
+    
+    if (!clientId || !secret) {
+      console.error('Plaid credentials not found in config');
+      throw new Error('Plaid credentials not configured');
+    }
+    
+    return { clientId, secret };
+  } catch (error) {
+    console.error('Error getting Plaid config:', error);
+    throw error;
+  }
+};
+
 // Initialize Plaid client
-const plaidClient = new PlaidApi(
-  new Configuration({
-    basePath: PlaidEnvironments.sandbox, // Use sandbox for development
-    baseOptions: {
-      headers: {
-        'PLAID-CLIENT-ID': functions.config().plaid.client_id,
-        'PLAID-SECRET': functions.config().plaid.secret,
+let plaidClient = null;
+try {
+  const { clientId, secret } = getPlaidConfig();
+  plaidClient = new PlaidApi(
+    new Configuration({
+      basePath: PlaidEnvironments.sandbox, // Use sandbox for development
+      baseOptions: {
+        headers: {
+          'PLAID-CLIENT-ID': clientId,
+          'PLAID-SECRET': secret,
+        },
       },
-    },
-  })
-);
+    })
+  );
+  console.log('Plaid client initialized successfully');
+} catch (error) {
+  console.error('Failed to initialize Plaid client:', error);
+}
 
 // Create Plaid Link Token
 exports.createPlaidLinkToken = functions.https.onCall(async (data, context) => {
   // Verify authentication
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  if (!plaidClient) {
+    console.error('Plaid client not initialized');
+    throw new functions.https.HttpsError('failed-precondition', 'Plaid client not initialized. Please check configuration.');
   }
 
   const userId = context.auth.uid;
@@ -37,11 +68,25 @@ exports.createPlaidLinkToken = functions.https.onCall(async (data, context) => {
       language: 'en',
     };
 
+    console.log('Creating Plaid link token for user:', userId);
     const response = await plaidClient.linkTokenCreate(request);
+    console.log('Link token created successfully');
     return { link_token: response.data.link_token };
   } catch (error) {
     console.error('Error creating link token:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to create link token', error);
+    console.error('Error details:', JSON.stringify(error.response?.data || error.message, null, 2));
+    
+    // Provide more specific error messages
+    if (error.response?.data) {
+      const plaidError = error.response.data;
+      throw new functions.https.HttpsError(
+        'internal',
+        `Plaid error: ${plaidError.error_message || plaidError.error_code || 'Unknown error'}`,
+        plaidError
+      );
+    }
+    
+    throw new functions.https.HttpsError('internal', `Failed to create link token: ${error.message}`, error);
   }
 });
 
