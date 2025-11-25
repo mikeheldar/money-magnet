@@ -125,12 +125,11 @@ export default {
         q = query(q, where('account_id', '==', filters.account_id))
       }
 
-      // Note: Firestore requires an index for compound queries
-      // For now, we'll fetch all and filter in memory if needed
+      // Try to order by date, but fall back if index doesn't exist
       try {
         q = query(q, orderBy('date', 'desc'))
       } catch (e) {
-        // If index doesn't exist, order in memory
+        // If index doesn't exist, we'll sort in memory
         console.warn('Firestore index may be needed for date ordering')
       }
 
@@ -165,6 +164,13 @@ export default {
           account_name: accountName
         })
       }
+
+      // Sort by date descending if orderBy didn't work
+      transactions.sort((a, b) => {
+        const aDate = a.date || ''
+        const bDate = b.date || ''
+        return bDate.localeCompare(aDate)
+      })
 
       return transactions
     } catch (error) {
@@ -253,17 +259,35 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const q = query(
+      let q = query(
         collection(db, 'accounts'),
-        where('user_id', '==', userId),
-        orderBy('created_at', 'desc')
+        where('user_id', '==', userId)
       )
       
+      // Try to order by created_at, but fall back if index doesn't exist
+      try {
+        q = query(q, orderBy('created_at', 'desc'))
+      } catch (e) {
+        // Index might not exist yet, fetch without ordering
+        console.warn('Index for accounts not found, fetching without orderBy')
+      }
+      
       const snapshot = await getDocs(q)
-      return snapshot.docs.map(doc => ({
+      const accounts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
+      
+      // Sort in memory if orderBy failed
+      if (accounts.length > 0 && accounts[0].created_at) {
+        accounts.sort((a, b) => {
+          const aTime = a.created_at?.toMillis?.() || 0
+          const bTime = b.created_at?.toMillis?.() || 0
+          return bTime - aTime
+        })
+      }
+      
+      return accounts
     } catch (error) {
       throw new Error(`Failed to fetch accounts: ${error.message}`)
     }
@@ -372,11 +396,16 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const q = query(
+      let q = query(
         collection(db, 'account_types'),
-        where('user_id', '==', userId),
-        orderBy('name')
+        where('user_id', '==', userId)
       )
+      
+      try {
+        q = query(q, orderBy('name'))
+      } catch (e) {
+        console.warn('Index for account_types not found, will sort in memory')
+      }
       
       const snapshot = await getDocs(q)
       const types = []
@@ -399,6 +428,9 @@ export default {
         })
       }
 
+      // Sort in memory if orderBy failed
+      types.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+
       return types
     } catch (error) {
       throw new Error(`Failed to fetch account types: ${error.message}`)
@@ -410,17 +442,27 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const q = query(
+      let q = query(
         collection(db, 'account_type_categories'),
-        where('user_id', '==', userId),
-        orderBy('name')
+        where('user_id', '==', userId)
       )
       
+      try {
+        q = query(q, orderBy('name'))
+      } catch (e) {
+        console.warn('Index for account_type_categories not found, will sort in memory')
+      }
+      
       const snapshot = await getDocs(q)
-      return snapshot.docs.map(doc => ({
+      const categories = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
+      
+      // Sort in memory if orderBy failed
+      categories.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      
+      return categories
     } catch (error) {
       throw new Error(`Failed to fetch account type categories: ${error.message}`)
     }
@@ -631,17 +673,27 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const q = query(
+      let q = query(
         collection(db, 'categories'),
-        where('user_id', '==', userId),
-        orderBy('name')
+        where('user_id', '==', userId)
       )
       
+      try {
+        q = query(q, orderBy('name'))
+      } catch (e) {
+        console.warn('Index for categories not found, will sort in memory')
+      }
+      
       const snapshot = await getDocs(q)
-      return snapshot.docs.map(doc => ({
+      const categories = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
+      
+      // Sort in memory if orderBy failed
+      categories.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      
+      return categories
     } catch (error) {
       throw new Error(`Failed to fetch categories: ${error.message}`)
     }
