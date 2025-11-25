@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import routes from './routes'
+import { auth } from '../config/firebase'
 
 export default function (/* { store, ssrContext } */) {
   const router = createRouter({
@@ -8,23 +9,24 @@ export default function (/* { store, ssrContext } */) {
     history: createWebHashHistory()
   })
 
-  // Auth guard
+  // Auth guard with Firebase
   router.beforeEach((to, from, next) => {
-    const isAuthenticated = localStorage.getItem('authToken')
-    
-    if (to.path === '/login') {
-      if (isAuthenticated) {
-        next('/')
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (to.path === '/login') {
+        if (user) {
+          next('/')
+        } else {
+          next()
+        }
       } else {
-        next()
+        if (user) {
+          next()
+        } else {
+          next('/login')
+        }
       }
-    } else {
-      if (isAuthenticated) {
-        next()
-      } else {
-        next('/login')
-      }
-    }
+      unsubscribe()
+    })
   })
 
   return router

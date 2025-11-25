@@ -125,26 +125,26 @@
 </template>
 
 <script>
-import { defineComponent, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '../services/api'
+    import { defineComponent, ref } from 'vue'
+    import { useRouter } from 'vue-router'
+    import firebaseApi from '../services/firebase-api'
 
-export default defineComponent({
-  name: 'MainLayout',
-  setup() {
-    const router = useRouter()
-    const leftDrawerOpen = ref(false)
+    export default defineComponent({
+      name: 'MainLayout',
+      setup() {
+        const router = useRouter()
+        const leftDrawerOpen = ref(false)
 
-    const logout = async () => {
-      try {
-        await api.logout()
-      } catch (err) {
-        console.error('Logout error:', err)
-      } finally {
-        localStorage.removeItem('authToken')
-        router.push('/login')
-      }
-    }
+        const logout = async () => {
+          try {
+            await firebaseApi.logout()
+          } catch (err) {
+            console.error('Logout error:', err)
+          } finally {
+            localStorage.removeItem('authToken')
+            router.push('/login')
+          }
+        }
 
     return {
       leftDrawerOpen,

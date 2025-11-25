@@ -9,10 +9,11 @@
       <q-card-section>
         <q-form @submit="onSubmit" class="q-gutter-md">
           <q-input
-            v-model="username"
-            label="Username"
+            v-model="email"
+            label="Email"
+            type="email"
             outlined
-            :rules="[val => !!val || 'Username is required']"
+            :rules="[val => !!val || 'Email is required', val => /.+@.+\..+/.test(val) || 'Please enter a valid email']"
           />
 
           <q-input
@@ -45,25 +46,35 @@
 </template>
 
 <script>
-import { defineComponent, ref } from 'vue'
+import { defineComponent, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
+import { auth } from '../config/firebase'
 
 export default defineComponent({
   name: 'LoginPage',
   setup() {
     const router = useRouter()
-    const username = ref('')
-    const password = ref('')
+    const email = ref('mike@example.com') // Default for testing
+    const password = ref('password')
     const loading = ref(false)
     const error = ref('')
+
+    onMounted(() => {
+      // Check if user is already logged in
+      auth.onAuthStateChanged((user) => {
+        if (user) {
+          router.push('/')
+        }
+      })
+    })
 
     const onSubmit = async () => {
       loading.value = true
       error.value = ''
 
       try {
-        const response = await api.login(username.value, password.value)
+        const response = await firebaseApi.login(email.value, password.value)
         
         if (response.success) {
           localStorage.setItem('authToken', response.token)
@@ -72,14 +83,14 @@ export default defineComponent({
           error.value = 'Invalid credentials'
         }
       } catch (err) {
-        error.value = err.response?.data?.error || 'Login failed. Please try again.'
+        error.value = err.message || 'Login failed. Please try again.'
       } finally {
         loading.value = false
       }
     }
 
     return {
-      username,
+      email,
       password,
       loading,
       error,

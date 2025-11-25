@@ -138,7 +138,7 @@
 <script>
 import { defineComponent, ref, onMounted, watch } from 'vue'
 import { useQuasar } from 'quasar'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
 
 export default defineComponent({
   name: 'TransactionsPage',
@@ -173,7 +173,7 @@ export default defineComponent({
 
     const loadTransactions = async () => {
       try {
-        transactions.value = await api.getTransactions({ period: period.value })
+        transactions.value = await firebaseApi.getTransactions({ period: period.value })
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -184,7 +184,7 @@ export default defineComponent({
 
     const loadAccounts = async () => {
       try {
-        accounts.value = await api.getAccounts()
+        accounts.value = await firebaseApi.getAccounts()
         accountOptions.value = accounts.value
       } catch (err) {
         $q.notify({
@@ -197,7 +197,7 @@ export default defineComponent({
     const onAddTransaction = async () => {
       adding.value = true
       try {
-        await api.createTransaction({
+          await firebaseApi.createTransaction({
           ...newTransaction.value,
           amount: parseFloat(newTransaction.value.amount)
         })
@@ -238,7 +238,7 @@ export default defineComponent({
         persistent: true
       }).onOk(async () => {
         try {
-          await api.deleteTransaction(id)
+          await firebaseApi.deleteTransaction(id)
           $q.notify({
             type: 'positive',
             message: 'Transaction deleted'

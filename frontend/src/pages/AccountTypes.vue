@@ -358,7 +358,7 @@
 <script>
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
 
 export default defineComponent({
   name: 'AccountTypesPage',
@@ -440,7 +440,7 @@ export default defineComponent({
 
     const loadCategories = async () => {
       try {
-        categories.value = await api.getAccountTypeCategories()
+        categories.value = await firebaseApi.getAccountTypeCategories()
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -451,7 +451,7 @@ export default defineComponent({
 
     const loadAccountTypes = async () => {
       try {
-        accountTypes.value = await api.getAccountTypes()
+        accountTypes.value = await firebaseApi.getAccountTypes()
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -473,7 +473,7 @@ export default defineComponent({
       try {
         let categoryId
         if (editingCategory.value.id) {
-          await api.updateAccountTypeCategory(editingCategory.value.id, editingCategory.value)
+          await firebaseApi.updateAccountTypeCategory(editingCategory.value.id, editingCategory.value)
           categoryId = editingCategory.value.id
         } else {
           const newCategory = await api.createAccountTypeCategory(editingCategory.value)
@@ -484,7 +484,7 @@ export default defineComponent({
         if (newAccountType.value.name) {
           // Generate code from name if not provided
           const code = newAccountType.value.code || newAccountType.value.name.toLowerCase().replace(/\s+/g, '_')
-          await api.createAccountType({
+          await firebaseApi.createAccountType({
             name: newAccountType.value.name,
             code: code,
             description: newAccountType.value.description || '',
@@ -548,7 +548,7 @@ export default defineComponent({
         persistent: true
       }).onOk(async () => {
         try {
-          await api.deleteAccountTypeCategory(id)
+          await firebaseApi.deleteAccountTypeCategory(id)
           $q.notify({
             type: 'positive',
             message: 'Category deleted'
@@ -648,7 +648,7 @@ export default defineComponent({
       try {
         // Auto-generate code from name if name changed (code is kept from original)
         const code = editingAccountType.value.code || editingAccountType.value.name.toLowerCase().replace(/\s+/g, '_')
-        await api.updateAccountType(id, {
+          await firebaseApi.updateAccountType(id, {
           name: editingAccountType.value.name,
           code: code,
           description: editingAccountType.value.description || '',
@@ -680,7 +680,7 @@ export default defineComponent({
         persistent: true
       }).onOk(async () => {
         try {
-          await api.deleteAccountType(id)
+          await firebaseApi.deleteAccountType(id)
           $q.notify({
             type: 'positive',
             message: 'Account type deleted'

@@ -248,7 +248,7 @@
 <script>
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
 
 export default defineComponent({
   name: 'AccountsPage',
@@ -342,7 +342,7 @@ export default defineComponent({
     const loadAccounts = async () => {
       loading.value = true
       try {
-        accounts.value = await api.getAccounts()
+        accounts.value = await firebaseApi.getAccounts()
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -355,7 +355,7 @@ export default defineComponent({
 
     const loadAccountTypes = async () => {
       try {
-        accountTypes.value = await api.getAccountTypes()
+        accountTypes.value = await firebaseApi.getAccountTypes()
         // Set default account type for new account (first one or checking)
         if (accountTypes.value.length > 0 && !newAccount.value.account_type_id) {
           const checkingType = accountTypes.value.find(t => t.code === 'checking')
@@ -412,7 +412,7 @@ export default defineComponent({
 
       adding.value = true
       try {
-        await api.createAccount({
+        await firebaseApi.createAccount({
           ...newAccount.value,
           balance_current: parseFloat(newAccount.value.balance_current || 0),
           interest_rate: newAccount.value.interest_rate ? parseFloat(newAccount.value.interest_rate) : null,
@@ -468,7 +468,7 @@ export default defineComponent({
       updating.value = true
       try {
         const selectedType = accountTypes.value.find(t => t.id === editingAccount.value.account_type_id)
-        await api.updateAccount(editingAccount.value.id, {
+        await firebaseApi.updateAccount(editingAccount.value.id, {
           name: editingAccount.value.name,
           balance_current: parseFloat(editingAccount.value.balance_current),
           account_type_id: editingAccount.value.account_type_id,
@@ -501,7 +501,7 @@ export default defineComponent({
       
       // Get transactions for this account to check count
       try {
-        const accountTransactions = await api.getTransactions({ account_id: accountId })
+        const accountTransactions = await firebaseApi.getTransactions({ account_id: accountId })
         const transactionCount = accountTransactions.length
         
         let message = `Are you sure you want to delete "${accountName}"?`
@@ -528,7 +528,7 @@ export default defineComponent({
           }
         }).onOk(async () => {
           try {
-            const result = await api.deleteAccount(accountId)
+            const result = await firebaseApi.deleteAccount(accountId)
             const transactionsDeleted = result.transactionsDeleted || 0
             
             let notifyMessage = 'Account deleted successfully'
@@ -568,7 +568,7 @@ export default defineComponent({
           }
         }).onOk(async () => {
           try {
-            const result = await api.deleteAccount(accountId)
+            const result = await firebaseApi.deleteAccount(accountId)
             $q.notify({
               type: 'positive',
               message: 'Account deleted successfully'

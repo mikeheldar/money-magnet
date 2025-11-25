@@ -84,7 +84,7 @@
 <script>
 import { defineComponent, ref, onMounted, watch, nextTick } from 'vue'
 import { useQuasar } from 'quasar'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
 import {
   Chart,
   CategoryScale,
@@ -128,7 +128,7 @@ export default defineComponent({
 
     const loadSummary = async () => {
       try {
-        summary.value = await api.getTransactionSummary(period.value)
+        summary.value = await firebaseApi.getTransactionSummary(period.value)
       } catch (err) {
         $q.notify({
           type: 'negative',

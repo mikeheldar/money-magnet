@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection - users can only read/write their own data
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Accounts - users can only access their own accounts
+    match /accounts/{accountId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Transactions - users can only access their own transactions
+    match /transactions/{transactionId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Categories - users can only access their own categories
+    match /categories/{categoryId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Account Types - users can only access their own account types
+    match /account_types/{typeId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Account Type Categories - users can only access their own categories
+    match /account_type_categories/{categoryId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Institutions - users can read all, but only create/update their own
+    match /institutions/{institutionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Budgets - users can only access their own budgets
+    match /budgets/{budgetId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Goals - users can only access their own goals
+    match /goals/{goalId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // Net Worth Snapshots - users can only access their own snapshots
+    match /net_worth_snapshots/{snapshotId} {
+      allow read, write: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+    }
+  }
+}
+

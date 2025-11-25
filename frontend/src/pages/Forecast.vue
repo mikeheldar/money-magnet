@@ -105,7 +105,7 @@
 <script>
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
-import api from '../services/api'
+import firebaseApi from '../services/firebase-api'
 
 export default defineComponent({
   name: 'ForecastPage',
@@ -132,7 +132,7 @@ export default defineComponent({
       try {
         const today = new Date()
         const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
-        const result = await api.getForecast(nextMonth.toISOString().split('T')[0])
+        const result = await firebaseApi.getForecast(nextMonth.toISOString().split('T')[0])
         currentMonth.value = result
       } catch (err) {
         $q.notify({
