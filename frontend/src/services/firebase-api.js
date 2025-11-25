@@ -877,6 +877,101 @@ export default {
     } catch (error) {
       throw new Error(`Failed to calculate forecast: ${error.message}`)
     }
+  },
+
+  // Budgets
+  async getBudgets() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      let q = query(
+        collection(db, 'budgets'),
+        where('user_id', '==', userId)
+      )
+      
+      try {
+        q = query(q, orderBy('created_at', 'desc'))
+      } catch (e) {
+        console.warn('Index for budgets not found, will sort in memory')
+      }
+      
+      const snapshot = await getDocs(q)
+      const budgets = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      
+      // Sort in memory if orderBy failed
+      budgets.sort((a, b) => {
+        const aTime = a.created_at?.toMillis?.() || 0
+        const bTime = b.created_at?.toMillis?.() || 0
+        return bTime - aTime
+      })
+      
+      return budgets
+    } catch (error) {
+      throw new Error(`Failed to fetch budgets: ${error.message}`)
+    }
+  },
+
+  async createBudget(budget) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const budgetData = {
+        ...budget,
+        user_id: userId,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      }
+
+      const docRef = await addDoc(collection(db, 'budgets'), budgetData)
+      return { id: docRef.id, ...budgetData }
+    } catch (error) {
+      throw new Error(`Failed to create budget: ${error.message}`)
+    }
+  },
+
+  async updateBudget(id, budget) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const budgetRef = doc(db, 'budgets', id)
+      const budgetDoc = await getDoc(budgetRef)
+      
+      if (!budgetDoc.exists()) throw new Error('Budget not found')
+      if (budgetDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await updateDoc(budgetRef, {
+        ...budget,
+        updated_at: serverTimestamp()
+      })
+
+      return { id, ...budget }
+    } catch (error) {
+      throw new Error(`Failed to update budget: ${error.message}`)
+    }
+  },
+
+  async deleteBudget(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const budgetRef = doc(db, 'budgets', id)
+      const budgetDoc = await getDoc(budgetRef)
+      
+      if (!budgetDoc.exists()) throw new Error('Budget not found')
+      if (budgetDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(budgetRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete budget: ${error.message}`)
+    }
   }
 }
 
