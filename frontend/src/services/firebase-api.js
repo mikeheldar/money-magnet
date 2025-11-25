@@ -972,6 +972,58 @@ export default {
     } catch (error) {
       throw new Error(`Failed to delete budget: ${error.message}`)
     }
+  },
+
+  // Plaid Integration
+  async createPlaidLinkToken() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      // Use Firebase Functions callable
+      const { getFunctions, httpsCallable } = await import('firebase/functions')
+      const functions = getFunctions()
+      const createLinkToken = httpsCallable(functions, 'createPlaidLinkToken')
+      
+      const result = await createLinkToken()
+      return result.data.link_token
+    } catch (error) {
+      throw new Error(`Failed to create Plaid link token: ${error.message}`)
+    }
+  },
+
+  async exchangePlaidPublicToken(publicToken) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      // Use Firebase Functions callable
+      const { getFunctions, httpsCallable } = await import('firebase/functions')
+      const functions = getFunctions()
+      const exchangeToken = httpsCallable(functions, 'exchangePlaidToken')
+      
+      const result = await exchangeToken({ publicToken })
+      return result.data
+    } catch (error) {
+      throw new Error(`Failed to exchange Plaid token: ${error.message}`)
+    }
+  },
+
+  async syncPlaidAccounts(accessToken) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      // Use Firebase Functions callable
+      const { getFunctions, httpsCallable } = await import('firebase/functions')
+      const functions = getFunctions()
+      const syncAccounts = httpsCallable(functions, 'syncPlaidAccounts')
+      
+      const result = await syncAccounts({ accessToken })
+      return result.data.accounts
+    } catch (error) {
+      throw new Error(`Failed to sync Plaid accounts: ${error.message}`)
+    }
   }
 }
 

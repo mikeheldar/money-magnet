@@ -22,6 +22,14 @@
                 label="Add Account"
                 @click="showAddRow = true"
                 :disable="showAddRow"
+                class="q-mr-sm"
+              />
+              <q-btn
+                color="secondary"
+                icon="account_balance"
+                label="Connect with Plaid"
+                @click="connectWithPlaid"
+                :loading="plaidLoading"
               />
             </template>
 
@@ -249,6 +257,7 @@
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
+import plaidService from '../services/plaid-service'
 
 export default defineComponent({
   name: 'AccountsPage',
@@ -584,6 +593,62 @@ export default defineComponent({
       }
     }
 
+    const connectWithPlaid = async () => {
+      plaidLoading.value = true
+      try {
+        // Create link token
+        const linkToken = await firebaseApi.createPlaidLinkToken()
+        
+        // Initialize Plaid Link
+        await plaidService.initialize(
+          linkToken,
+          async (publicToken, metadata) => {
+            try {
+              // Exchange public token for access token
+              const result = await firebaseApi.exchangePlaidPublicToken(publicToken)
+              
+              // Sync accounts from Plaid
+              const accounts = await firebaseApi.syncPlaidAccounts(result.access_token)
+              
+              $q.notify({
+                type: 'positive',
+                message: `Successfully connected ${accounts.length} account(s) from ${metadata.institution?.name || 'your bank'}`
+              })
+              
+              // Reload accounts
+              await loadAccounts()
+            } catch (err) {
+              console.error('Error syncing Plaid accounts:', err)
+              $q.notify({
+                type: 'negative',
+                message: err.message || 'Failed to sync accounts from Plaid'
+              })
+            }
+          },
+          (err, metadata) => {
+            if (err) {
+              console.error('Plaid Link error:', err)
+              $q.notify({
+                type: 'negative',
+                message: err.error_message || 'Failed to connect with Plaid'
+              })
+            }
+          }
+        )
+        
+        // Open Plaid Link
+        plaidService.open()
+      } catch (err) {
+        console.error('Error connecting with Plaid:', err)
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to initialize Plaid connection'
+        })
+      } finally {
+        plaidLoading.value = false
+      }
+    }
+
     onMounted(async () => {
       await loadAccountTypes()
       await loadAccounts()
@@ -616,7 +681,9 @@ export default defineComponent({
       startEdit,
       cancelEdit,
       onUpdateAccount,
-      deleteAccount
+      deleteAccount,
+      connectWithPlaid,
+      plaidLoading
     }
   }
 })
