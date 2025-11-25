@@ -1,10 +1,18 @@
 const functions = require('firebase-functions');
+const { onCall } = require('firebase-functions/v2/https');
+const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 
 admin.initializeApp();
 
-// Get Plaid credentials from config
+// Set global options for 2nd gen functions
+setGlobalOptions({
+  region: 'us-central1',
+  maxInstances: 10,
+});
+
+// Get Plaid credentials from config (lazy-loaded)
 const getPlaidConfig = () => {
   try {
     const config = functions.config();
@@ -23,39 +31,41 @@ const getPlaidConfig = () => {
   }
 };
 
-// Initialize Plaid client
+// Initialize Plaid client (lazy-loaded)
 let plaidClient = null;
-try {
-  const { clientId, secret } = getPlaidConfig();
-  plaidClient = new PlaidApi(
-    new Configuration({
-      basePath: PlaidEnvironments.sandbox, // Use sandbox for development
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': clientId,
-          'PLAID-SECRET': secret,
-        },
-      },
-    })
-  );
-  console.log('Plaid client initialized successfully');
-} catch (error) {
-  console.error('Failed to initialize Plaid client:', error);
-}
+const getPlaidClient = () => {
+  if (!plaidClient) {
+    try {
+      const { clientId, secret } = getPlaidConfig();
+      plaidClient = new PlaidApi(
+        new Configuration({
+          basePath: PlaidEnvironments.sandbox, // Use sandbox for development
+          baseOptions: {
+            headers: {
+              'PLAID-CLIENT-ID': clientId,
+              'PLAID-SECRET': secret,
+            },
+          },
+        })
+      );
+      console.log('Plaid client initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Plaid client:', error);
+      throw error;
+    }
+  }
+  return plaidClient;
+};
 
 // Create Plaid Link Token
-exports.createPlaidLinkToken = functions.https.onCall(async (data, context) => {
+exports.createPlaidLinkToken = onCall(async (request) => {
   // Verify authentication
-  if (!context.auth) {
+  if (!request.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
 
-  if (!plaidClient) {
-    console.error('Plaid client not initialized');
-    throw new functions.https.HttpsError('failed-precondition', 'Plaid client not initialized. Please check configuration.');
-  }
-
-  const userId = context.auth.uid;
+  const userId = request.auth.uid;
+  const client = getPlaidClient();
 
   try {
     const request = {
@@ -69,7 +79,7 @@ exports.createPlaidLinkToken = functions.https.onCall(async (data, context) => {
     };
 
     console.log('Creating Plaid link token for user:', userId);
-    const response = await plaidClient.linkTokenCreate(request);
+    const response = await client.linkTokenCreate(request);
     console.log('Link token created successfully');
     return { link_token: response.data.link_token };
   } catch (error) {
@@ -91,13 +101,14 @@ exports.createPlaidLinkToken = functions.https.onCall(async (data, context) => {
 });
 
 // Exchange Public Token for Access Token
-exports.exchangePlaidToken = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+exports.exchangePlaidToken = onCall(async (request) => {
+  if (!request.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
 
-  const { publicToken } = data;
-  const userId = context.auth.uid;
+  const { publicToken } = request.data;
+  const userId = request.auth.uid;
+  const client = getPlaidClient();
 
   if (!publicToken) {
     throw new functions.https.HttpsError('invalid-argument', 'Public token is required');
@@ -105,7 +116,7 @@ exports.exchangePlaidToken = functions.https.onCall(async (data, context) => {
 
   try {
     // Exchange public token for access token
-    const exchangeResponse = await plaidClient.itemPublicTokenExchange({
+    const exchangeResponse = await client.itemPublicTokenExchange({
       public_token: publicToken,
     });
 
@@ -132,13 +143,14 @@ exports.exchangePlaidToken = functions.https.onCall(async (data, context) => {
 });
 
 // Sync Plaid Accounts
-exports.syncPlaidAccounts = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+exports.syncPlaidAccounts = onCall(async (request) => {
+  if (!request.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
 
-  const { accessToken } = data;
-  const userId = context.auth.uid;
+  const { accessToken } = request.data;
+  const userId = request.auth.uid;
+  const client = getPlaidClient();
 
   if (!accessToken) {
     throw new functions.https.HttpsError('invalid-argument', 'Access token is required');
@@ -146,7 +158,7 @@ exports.syncPlaidAccounts = functions.https.onCall(async (data, context) => {
 
   try {
     // Get accounts from Plaid
-    const accountsResponse = await plaidClient.accountsGet({
+    const accountsResponse = await client.accountsGet({
       access_token: accessToken,
     });
 
@@ -156,7 +168,7 @@ exports.syncPlaidAccounts = functions.https.onCall(async (data, context) => {
     // Get institution info
     let institutionName = 'Unknown Institution';
     try {
-      const institutionResponse = await plaidClient.institutionsGetById({
+      const institutionResponse = await client.institutionsGetById({
         institution_id: institutionId,
         country_codes: ['US'],
       });
