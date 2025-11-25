@@ -266,6 +266,53 @@ export default {
     }
   },
 
+  async updateTransaction(id, transaction) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const transactionRef = doc(db, 'transactions', id)
+      const transactionDoc = await getDoc(transactionRef)
+      
+      if (!transactionDoc.exists()) throw new Error('Transaction not found')
+      if (transactionDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      // Get old transaction data to revert account balance
+      const oldData = transactionDoc.data()
+      
+      // Revert old account balance
+      if (oldData.account_id) {
+        const oldAmount = parseFloat(oldData.amount) || 0
+        const oldType = oldData.type
+        // Revert: if it was income, subtract; if expense, add back
+        if (oldType === 'income') {
+          await this.updateAccountBalance(oldData.account_id, oldAmount, 'expense')
+        } else {
+          await this.updateAccountBalance(oldData.account_id, oldAmount, 'income')
+        }
+      }
+
+      // Update transaction
+      const transactionData = {
+        ...transaction,
+        date: transaction.date || oldData.date,
+        updated_at: serverTimestamp()
+      }
+
+      await updateDoc(transactionRef, transactionData)
+      
+      // Update new account balance
+      if (transaction.account_id) {
+        const newAmount = parseFloat(transaction.amount) || 0
+        await this.updateAccountBalance(transaction.account_id, newAmount, transaction.type)
+      }
+
+      return { id, ...transactionData }
+    } catch (error) {
+      throw new Error(`Failed to update transaction: ${error.message}`)
+    }
+  },
+
   async deleteTransaction(id) {
     try {
       const userId = auth.currentUser?.uid
