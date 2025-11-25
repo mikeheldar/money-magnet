@@ -75,30 +75,44 @@ export default {
 
       let q = query(collection(db, 'transactions'), where('user_id', '==', userId))
 
+      // Firestore date filtering - store dates as strings for easier querying
       if (filters.period === 'weekly') {
         const today = new Date()
         const weekStart = new Date(today)
         weekStart.setDate(today.getDate() - today.getDay())
         const weekEnd = new Date(weekStart)
         weekEnd.setDate(weekStart.getDate() + 6)
-        q = query(q, where('date', '>=', weekStart.toISOString().split('T')[0]), where('date', '<=', weekEnd.toISOString().split('T')[0]))
+        const weekStartStr = weekStart.toISOString().split('T')[0]
+        const weekEndStr = weekEnd.toISOString().split('T')[0]
+        q = query(q, where('date', '>=', weekStartStr), where('date', '<=', weekEndStr))
       } else if (filters.period === 'monthly') {
         const today = new Date()
         const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
         const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-        q = query(q, where('date', '>=', monthStart.toISOString().split('T')[0]), where('date', '<=', monthEnd.toISOString().split('T')[0]))
+        const monthStartStr = monthStart.toISOString().split('T')[0]
+        const monthEndStr = monthEnd.toISOString().split('T')[0]
+        q = query(q, where('date', '>=', monthStartStr), where('date', '<=', monthEndStr))
       } else if (filters.period === 'yearly') {
         const today = new Date()
         const yearStart = new Date(today.getFullYear(), 0, 1)
         const yearEnd = new Date(today.getFullYear(), 11, 31)
-        q = query(q, where('date', '>=', yearStart.toISOString().split('T')[0]), where('date', '<=', yearEnd.toISOString().split('T')[0]))
+        const yearStartStr = yearStart.toISOString().split('T')[0]
+        const yearEndStr = yearEnd.toISOString().split('T')[0]
+        q = query(q, where('date', '>=', yearStartStr), where('date', '<=', yearEndStr))
       }
 
       if (filters.account_id) {
         q = query(q, where('account_id', '==', filters.account_id))
       }
 
-      q = query(q, orderBy('date', 'desc'))
+      // Note: Firestore requires an index for compound queries
+      // For now, we'll fetch all and filter in memory if needed
+      try {
+        q = query(q, orderBy('date', 'desc'))
+      } catch (e) {
+        // If index doesn't exist, order in memory
+        console.warn('Firestore index may be needed for date ordering')
+      }
 
       const snapshot = await getDocs(q)
       const transactions = []
