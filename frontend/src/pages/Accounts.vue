@@ -346,7 +346,7 @@ export default defineComponent({
     }
 
     const displayRows = computed(() => {
-      return accounts.value
+      return accounts.value || []
     })
 
     const loadAccounts = async () => {
