@@ -7,7 +7,8 @@ const routes = [
       { path: 'transactions', component: () => import('pages/Transactions.vue') },
       { path: 'forecast', component: () => import('pages/Forecast.vue') },
       { path: 'accounts', component: () => import('pages/Accounts.vue') },
-      { path: 'account-types', component: () => import('pages/AccountTypes.vue') }
+      { path: 'account-types', component: () => import('pages/AccountTypes.vue') },
+      { path: 'seed-data', component: () => import('pages/SeedData.vue') }
     ]
   },
   {
