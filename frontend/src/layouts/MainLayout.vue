@@ -126,6 +126,21 @@
           </q-item-section>
         </q-item>
 
+        <q-item
+          clickable
+          v-ripple
+          to="/budget"
+        >
+          <q-item-section avatar>
+            <q-icon name="account_balance_wallet" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Budget</q-item-label>
+            <q-item-label caption>Income & Expenses</q-item-label>
+          </q-item-section>
+        </q-item>
+
         <q-separator spaced />
 
         <q-item
