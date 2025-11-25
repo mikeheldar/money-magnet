@@ -1,0 +1,21 @@
+{
+  "name": "money-magnet-server",
+  "version": "1.0.0",
+  "description": "Money Magnet Finance Management Backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "init-db": "node db/init.js"
+  },
+  "dependencies": {
+    "@hapi/hapi": "^21.0.0",
+    "@hapi/boom": "^10.0.1",
+    "better-sqlite3": "^9.2.2"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">= 18.0.0"
+  }
+}
+

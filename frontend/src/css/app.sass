@@ -1,0 +1,87 @@
+// app global css in SASS form
+
+// Mint Green Color Palette (inspired by Mint.com and Cloverly)
+:root
+  --mint-primary: #4ECDC4
+  --mint-primary-dark: #3BA99F
+  --mint-primary-light: #7EDDD6
+  --mint-secondary: #95E1D3
+  --mint-accent: #A8E6CF
+  --mint-background: #F0FDFA
+  --mint-surface: #FFFFFF
+  --mint-text: #1F2937
+  --mint-text-light: #6B7280
+  --mint-success: #10B981
+  --mint-warning: #F59E0B
+  --mint-error: #EF4444
+  --mint-border: #D1FAE5
+
+// Global styles
+body
+  background-color: var(--mint-background)
+  color: var(--mint-text)
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif
+
+// Custom Quasar theme colors
+.q-card
+  background-color: var(--mint-surface)
+  border-radius: 12px
+  box-shadow: 0 2px 8px rgba(78, 205, 196, 0.1)
+
+.q-btn--unelevated
+  &.bg-primary
+    background-color: var(--mint-primary) !important
+    color: white !important
+    &:hover
+      background-color: var(--mint-primary-dark) !important
+
+// Mint green header
+.q-header
+  background: linear-gradient(135deg, var(--mint-primary) 0%, var(--mint-secondary) 100%) !important
+  box-shadow: 0 2px 8px rgba(78, 205, 196, 0.2)
+
+// Mint green drawer
+.q-drawer
+  background-color: var(--mint-surface) !important
+  border-right: 1px solid var(--mint-border)
+
+.q-item
+  &.q-item--active
+    background-color: rgba(78, 205, 196, 0.1) !important
+    color: var(--mint-primary-dark) !important
+    .q-item__label
+      color: var(--mint-primary-dark) !important
+
+// Custom card styles
+.mint-card
+  background: linear-gradient(135deg, var(--mint-surface) 0%, var(--mint-background) 100%)
+  border: 1px solid var(--mint-border)
+  border-radius: 12px
+  padding: 20px
+
+// Positive (income) styling
+.bg-positive
+  background: linear-gradient(135deg, #10B981 0%, #34D399 100%) !important
+
+// Negative (expense) styling  
+.bg-negative
+  background: linear-gradient(135deg, #EF4444 0%, #F87171 100%) !important
+
+// Primary mint styling
+.bg-primary
+  background: linear-gradient(135deg, var(--mint-primary) 0%, var(--mint-secondary) 100%) !important
+
+// Input styling
+.q-field--outlined .q-field__control
+  border-radius: 8px
+  border-color: var(--mint-border)
+  &:hover
+    border-color: var(--mint-primary-light)
+
+.q-field--focused .q-field__control
+  border-color: var(--mint-primary) !important
+
+// Login page styling
+.q-page--login
+  background: linear-gradient(135deg, var(--mint-background) 0%, var(--mint-accent) 100%)
+  min-height: 100vh
