@@ -36,6 +36,29 @@ const toTimestamp = (dateString) => {
   return Timestamp.fromDate(new Date(dateString))
 }
 
+// Helper to extract and log Firestore index creation links from errors
+const handleFirestoreError = (error, context = '') => {
+  const errorMessage = error.message || String(error)
+  
+  // Check if error contains Firestore index link
+  const indexLinkMatch = errorMessage.match(/https:\/\/console\.firebase\.google\.com[^\s`]+/)
+  if (indexLinkMatch) {
+    const indexLink = indexLinkMatch[0]
+    console.error(`%c🔗 Firestore Index Required for ${context}`, 'color: #ff6b6b; font-weight: bold; font-size: 14px;')
+    console.error(`%cClick this link to create the index:`, 'color: #4ecdc4; font-weight: bold;')
+    console.log(`%c${indexLink}`, 'color: #1e90ff; text-decoration: underline; font-size: 12px;')
+    console.log('')
+    
+    // Also log as a clickable link
+    console.group(`%c🔗 Firestore Index Link (${context})`, 'color: #ff6b6b; font-weight: bold;')
+    console.log(`%cClick to create index:`, 'color: #4ecdc4;')
+    console.log(`%c${indexLink}`, 'color: #1e90ff; text-decoration: underline; cursor: pointer;')
+    console.groupEnd()
+  }
+  
+  return errorMessage
+}
+
 export default {
   // Authentication
   async login(email, password) {
@@ -133,7 +156,23 @@ export default {
         console.warn('Firestore index may be needed for date ordering')
       }
 
-      const snapshot = await getDocs(q)
+      let snapshot
+      try {
+        snapshot = await getDocs(q)
+      } catch (e) {
+        // If query fails due to missing index, try without orderBy
+        if (e.message && e.message.includes('index')) {
+          handleFirestoreError(e, 'getTransactions')
+          // Retry without orderBy
+          q = query(collection(db, 'transactions'), where('user_id', '==', userId))
+          if (filters.account_id) {
+            q = query(q, where('account_id', '==', filters.account_id))
+          }
+          snapshot = await getDocs(q)
+        } else {
+          throw e
+        }
+      }
       const transactions = []
       
       for (const docSnap of snapshot.docs) {
@@ -174,7 +213,8 @@ export default {
 
       return transactions
     } catch (error) {
-      throw new Error(`Failed to fetch transactions: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getTransactions')
+      throw new Error(`Failed to fetch transactions: ${errorMsg}`)
     }
   },
 
@@ -272,7 +312,20 @@ export default {
         console.warn('Index for accounts not found, fetching without orderBy')
       }
       
-      const snapshot = await getDocs(q)
+      let snapshot
+      try {
+        snapshot = await getDocs(q)
+      } catch (e) {
+        // If query fails due to missing index, try without orderBy
+        if (e.message && e.message.includes('index')) {
+          handleFirestoreError(e, 'getAccounts')
+          // Retry without orderBy
+          q = query(collection(db, 'accounts'), where('user_id', '==', userId))
+          snapshot = await getDocs(q)
+        } else {
+          throw e
+        }
+      }
       const accounts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -289,7 +342,8 @@ export default {
       
       return accounts
     } catch (error) {
-      throw new Error(`Failed to fetch accounts: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getAccounts')
+      throw new Error(`Failed to fetch accounts: ${errorMsg}`)
     }
   },
 
@@ -407,7 +461,20 @@ export default {
         console.warn('Index for account_types not found, will sort in memory')
       }
       
-      const snapshot = await getDocs(q)
+      let snapshot
+      try {
+        snapshot = await getDocs(q)
+      } catch (e) {
+        // If query fails due to missing index, try without orderBy
+        if (e.message && e.message.includes('index')) {
+          handleFirestoreError(e, 'getAccountTypes')
+          // Retry without orderBy
+          q = query(collection(db, 'account_types'), where('user_id', '==', userId))
+          snapshot = await getDocs(q)
+        } else {
+          throw e
+        }
+      }
       const types = []
       
       for (const docSnap of snapshot.docs) {
@@ -433,7 +500,8 @@ export default {
 
       return types
     } catch (error) {
-      throw new Error(`Failed to fetch account types: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getAccountTypes')
+      throw new Error(`Failed to fetch account types: ${errorMsg}`)
     }
   },
 
@@ -453,7 +521,20 @@ export default {
         console.warn('Index for account_type_categories not found, will sort in memory')
       }
       
-      const snapshot = await getDocs(q)
+      let snapshot
+      try {
+        snapshot = await getDocs(q)
+      } catch (e) {
+        // If query fails due to missing index, try without orderBy
+        if (e.message && e.message.includes('index')) {
+          handleFirestoreError(e, 'getAccountTypeCategories')
+          // Retry without orderBy
+          q = query(collection(db, 'account_type_categories'), where('user_id', '==', userId))
+          snapshot = await getDocs(q)
+        } else {
+          throw e
+        }
+      }
       const categories = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -464,7 +545,8 @@ export default {
       
       return categories
     } catch (error) {
-      throw new Error(`Failed to fetch account type categories: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getAccountTypeCategories')
+      throw new Error(`Failed to fetch account type categories: ${errorMsg}`)
     }
   },
 
@@ -663,7 +745,8 @@ export default {
         return Object.values(grouped)
       }
     } catch (error) {
-      throw new Error(`Failed to fetch balances by type: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getBalancesByType')
+      throw new Error(`Failed to fetch balances by type: ${errorMsg}`)
     }
   },
 
@@ -684,7 +767,20 @@ export default {
         console.warn('Index for categories not found, will sort in memory')
       }
       
-      const snapshot = await getDocs(q)
+      let snapshot
+      try {
+        snapshot = await getDocs(q)
+      } catch (e) {
+        // If query fails due to missing index, try without orderBy
+        if (e.message && e.message.includes('index')) {
+          handleFirestoreError(e, 'getCategories')
+          // Retry without orderBy
+          q = query(collection(db, 'categories'), where('user_id', '==', userId))
+          snapshot = await getDocs(q)
+        } else {
+          throw e
+        }
+      }
       const categories = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -695,7 +791,8 @@ export default {
       
       return categories
     } catch (error) {
-      throw new Error(`Failed to fetch categories: ${error.message}`)
+      const errorMsg = handleFirestoreError(error, 'getCategories')
+      throw new Error(`Failed to fetch categories: ${errorMsg}`)
     }
   },
 

@@ -130,9 +130,11 @@ export default defineComponent({
       try {
         summary.value = await firebaseApi.getTransactionSummary(period.value)
       } catch (err) {
+        console.error('Error loading summary:', err)
         $q.notify({
           type: 'negative',
-          message: 'Failed to load summary'
+          message: err.message || 'Failed to load summary',
+          caption: 'Check console for index creation link if needed'
         })
       }
     }
@@ -145,9 +147,11 @@ export default defineComponent({
         renderChart()
       } catch (err) {
         console.error('Error loading balance data:', err)
+        // Error message with index link is already logged by firebase-api
         $q.notify({
           type: 'negative',
-          message: err.response?.data?.error || err.message || 'Failed to load balance data'
+          message: err.response?.data?.error || err.message || 'Failed to load balance data',
+          caption: 'Check console for index creation link if needed'
         })
         balanceData.value = []
       }
