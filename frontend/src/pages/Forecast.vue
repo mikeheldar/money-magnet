@@ -149,7 +149,7 @@ export default defineComponent({
       }
 
       try {
-        forecast.value = await api.getForecast(targetDate.value)
+        forecast.value = await firebaseApi.getForecast(targetDate.value)
       } catch (err) {
         $q.notify({
           type: 'negative',

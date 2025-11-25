@@ -139,7 +139,7 @@ export default defineComponent({
 
     const loadBalanceData = async () => {
       try {
-        const data = await api.getBalancesByType(balanceGroupBy.value)
+        const data = await firebaseApi.getBalancesByType(balanceGroupBy.value)
         balanceData.value = data || []
         await nextTick()
         renderChart()

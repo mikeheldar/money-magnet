@@ -476,7 +476,7 @@ export default defineComponent({
           await firebaseApi.updateAccountTypeCategory(editingCategory.value.id, editingCategory.value)
           categoryId = editingCategory.value.id
         } else {
-          const newCategory = await api.createAccountTypeCategory(editingCategory.value)
+          const newCategory = await firebaseApi.createAccountTypeCategory(editingCategory.value)
           categoryId = newCategory.id
         }
         
@@ -597,7 +597,7 @@ export default defineComponent({
       try {
         // Generate code from name if not provided
         const code = newAccountType.value.code || newAccountType.value.name.toLowerCase().replace(/\s+/g, '_')
-        await api.createAccountType({
+        await firebaseApi.createAccountType({
           name: newAccountType.value.name,
           code: code,
           description: newAccountType.value.description || '',
