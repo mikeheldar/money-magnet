@@ -517,7 +517,12 @@ export default defineComponent({
     }
 
     const onAddTransaction = async () => {
+      console.log('🔵 [Transactions Page] ============================================')
+      console.log('🔵 [Transactions Page] onAddTransaction called')
+      console.log('🔵 [Transactions Page] New transaction data:', JSON.stringify(newTransaction.value, null, 2))
+      
       if (!newTransaction.value.amount || !newTransaction.value.date || !newTransaction.value.type) {
+        console.warn('⚠️ [Transactions Page] Validation failed - missing required fields')
         $q.notify({
           type: 'negative',
           message: 'Amount, date, and type are required'
@@ -527,10 +532,22 @@ export default defineComponent({
 
       adding.value = true
       try {
-        await firebaseApi.createTransaction({
+        const transactionData = {
           ...newTransaction.value,
           amount: parseFloat(newTransaction.value.amount)
-        })
+        }
+        
+        console.log('🔵 [Transactions Page] Calling firebaseApi.createTransaction...')
+        console.log('🔵 [Transactions Page] Transaction data:', JSON.stringify(transactionData, null, 2))
+        
+        const result = await firebaseApi.createTransaction(transactionData)
+        
+        console.log('✅ [Transactions Page] Transaction created successfully!')
+        console.log('✅ [Transactions Page] Result:', JSON.stringify(result, null, 2))
+        console.log('✅ [Transactions Page] Transaction ID:', result.id)
+        console.log('✅ [Transactions Page] This should trigger Firebase Function onTransactionCreated')
+        console.log('✅ [Transactions Page] Which should call N8N webhook')
+        console.log('🔵 [Transactions Page] ============================================')
         
         $q.notify({
           type: 'positive',
@@ -538,9 +555,15 @@ export default defineComponent({
         })
         
         cancelAdd()
-        await loadTransactions()
-        await loadAccounts()
+        
+        console.log('🔵 [Transactions Page] Reloading transactions in 3 seconds to see if category was added...')
+        setTimeout(async () => {
+          await loadTransactions()
+          await loadAccounts()
+          console.log('✅ [Transactions Page] Transactions reloaded - check if category was added')
+        }, 3000)
       } catch (err) {
+        console.error('❌ [Transactions Page] Error creating transaction:', err)
         $q.notify({
           type: 'negative',
           message: err.message || 'Failed to add transaction'

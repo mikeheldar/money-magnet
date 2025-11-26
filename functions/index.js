@@ -12,7 +12,7 @@ admin.initializeApp();
 setGlobalOptions({
   region: 'us-central1',
   maxInstances: 10,
-  secrets: ['PLAID_CLIENT_ID', 'PLAID_SECRET'], // Declare secrets for v2 functions
+  secrets: ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'N8N_WEBHOOK_URL'], // Declare secrets for v2 functions
 });
 
 // Get Plaid credentials from environment variables (v2 functions use env vars, not config)
@@ -553,11 +553,14 @@ exports.syncPlaidAccounts = onCall(async (request) => {
 // N8N Integration: Smart Transaction Categorization
 // ============================================================================
 
-// Get N8N webhook URL from environment or config
+// Get N8N webhook URL from environment variables (v2 functions use env vars, not config)
 const getN8NWebhookUrl = (workflowName) => {
-  const baseUrl = process.env.N8N_WEBHOOK_URL || functions.config().n8n?.webhook_url || '';
+  // For v2 functions, use environment variables
+  // Set via: firebase functions:secrets:set N8N_WEBHOOK_URL
+  // Or via: firebase functions:config:set n8n.webhook_url (then access via process.env)
+  const baseUrl = process.env.N8N_WEBHOOK_URL || '';
   if (!baseUrl) {
-    console.warn('⚠️ [Function] N8N webhook URL not configured. Set N8N_WEBHOOK_URL environment variable or firebase functions:config:set n8n.webhook_url');
+    console.warn('⚠️ [Function] N8N webhook URL not configured. Set N8N_WEBHOOK_URL environment variable: firebase functions:secrets:set N8N_WEBHOOK_URL');
     return null;
   }
   return `${baseUrl.replace(/\/$/, '')}/${workflowName}`;
@@ -573,11 +576,16 @@ exports.onTransactionCreated = onDocumentCreated(
     const transaction = event.data.data();
     const transactionId = event.params.transactionId;
 
-    console.log('🔵 [Function] New transaction created:', transactionId);
+    console.log('🔵 [Function] ============================================');
+    console.log('🔵 [Function] onTransactionCreated TRIGGERED');
+    console.log('🔵 [Function] Transaction ID:', transactionId);
+    console.log('🔵 [Function] Transaction data:', JSON.stringify(transaction, null, 2));
+    console.log('🔵 [Function] ============================================');
 
     // Skip if already has category (user set it manually)
     if (transaction.category_id) {
-      console.log('ℹ️ [Function] Transaction already has category, skipping N8N');
+      console.log('ℹ️ [Function] Transaction already has category_id:', transaction.category_id);
+      console.log('ℹ️ [Function] Skipping N8N categorization');
       return null;
     }
 
@@ -585,32 +593,43 @@ exports.onTransactionCreated = onDocumentCreated(
     if (transaction.plaid_category_id || transaction.external_id) {
       // Still try to categorize if no category_id
       if (!transaction.category_id) {
-        console.log('🔵 [Function] Plaid transaction without category, will categorize');
+        console.log('🔵 [Function] Plaid transaction without category_id, will categorize');
       } else {
         console.log('ℹ️ [Function] Plaid transaction already categorized, skipping');
         return null;
       }
     }
 
+    console.log('🔵 [Function] Getting N8N webhook URL...');
     const webhookUrl = getN8NWebhookUrl('categorize-transaction');
+    console.log('🔵 [Function] Webhook URL:', webhookUrl || 'NOT SET');
+    
     if (!webhookUrl) {
-      console.warn('⚠️ [Function] N8N not configured, skipping categorization');
+      console.warn('⚠️ [Function] N8N webhook URL not configured!');
+      console.warn('⚠️ [Function] Set it with: firebase functions:secrets:set N8N_WEBHOOK_URL');
       return null;
     }
 
+    const payload = {
+      transaction_id: transactionId,
+      user_id: transaction.user_id,
+      description: transaction.description || '',
+      merchant: transaction.merchant || '',
+      amount: transaction.amount,
+      type: transaction.type,
+      date: transaction.date,
+    };
+
+    console.log('🔵 [Function] ============================================');
+    console.log('🔵 [Function] Calling N8N webhook...');
+    console.log('🔵 [Function] URL:', webhookUrl);
+    console.log('🔵 [Function] Payload:', JSON.stringify(payload, null, 2));
+    console.log('🔵 [Function] ============================================');
+
     try {
-      console.log('🔵 [Function] Calling N8N webhook for categorization...');
       const response = await axios.post(
         webhookUrl,
-        {
-          transaction_id: transactionId,
-          user_id: transaction.user_id,
-          description: transaction.description || '',
-          merchant: transaction.merchant || '',
-          amount: transaction.amount,
-          type: transaction.type,
-          date: transaction.date,
-        },
+        payload,
         {
           timeout: 15000, // 15 second timeout
           headers: {
@@ -619,30 +638,61 @@ exports.onTransactionCreated = onDocumentCreated(
         }
       );
 
-      console.log('✅ [Function] N8N response received:', response.data);
+      console.log('✅ [Function] ============================================');
+      console.log('✅ [Function] N8N RESPONSE RECEIVED');
+      console.log('✅ [Function] Status:', response.status);
+      console.log('✅ [Function] Response data:', JSON.stringify(response.data, null, 2));
+      console.log('✅ [Function] ============================================');
 
       // Update transaction with suggested category
       if (response.data && response.data.category_id) {
         const transactionRef = admin.firestore().collection('transactions').doc(transactionId);
-        await transactionRef.update({
+        const updateData = {
           category_id: response.data.category_id,
-          category_suggested: true, // Flag to show it was auto-categorized
+          category_suggested: true,
           category_confidence: response.data.confidence || 0.8,
           category_source: response.data.source || 'n8n',
           updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        console.log('✅ [Function] Transaction updated with suggested category:', response.data.category_id);
+        };
+        
+        console.log('🔵 [Function] Updating transaction with category...');
+        console.log('🔵 [Function] Update data:', JSON.stringify(updateData, null, 2));
+        
+        await transactionRef.update(updateData);
+        
+        console.log('✅ [Function] Transaction updated successfully!');
+        console.log('✅ [Function] Category ID:', response.data.category_id);
+        console.log('✅ [Function] Category Name:', response.data.category_name);
       } else {
         console.log('ℹ️ [Function] N8N did not return a category_id');
+        console.log('ℹ️ [Function] Response data:', JSON.stringify(response.data, null, 2));
       }
 
       return null;
     } catch (error) {
-      console.error('❌ [Function] N8N categorization error:', error.message);
+      console.error('❌ [Function] ============================================');
+      console.error('❌ [Function] N8N CATEGORIZATION ERROR');
+      console.error('❌ [Function] Error message:', error.message);
+      console.error('❌ [Function] Error code:', error.code);
+      
       if (error.response) {
-        console.error('  - Response status:', error.response.status);
-        console.error('  - Response data:', error.response.data);
+        console.error('❌ [Function] Response status:', error.response.status);
+        console.error('❌ [Function] Response headers:', JSON.stringify(error.response.headers, null, 2));
+        console.error('❌ [Function] Response data:', JSON.stringify(error.response.data, null, 2));
       }
+      
+      if (error.request) {
+        console.error('❌ [Function] Request was made but no response received');
+        console.error('❌ [Function] Request config:', JSON.stringify({
+          url: error.config?.url,
+          method: error.config?.method,
+          headers: error.config?.headers,
+        }, null, 2));
+      }
+      
+      console.error('❌ [Function] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      console.error('❌ [Function] ============================================');
+      
       // Don't throw - allow transaction to be created without category
       return null;
     }

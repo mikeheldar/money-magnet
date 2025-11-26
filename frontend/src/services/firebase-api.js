@@ -245,6 +245,10 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
+      console.log('🔵 [Frontend] Creating transaction...')
+      console.log('🔵 [Frontend] User ID:', userId)
+      console.log('🔵 [Frontend] Transaction data:', JSON.stringify(transaction, null, 2))
+
       const transactionData = {
         ...transaction,
         user_id: userId,
@@ -253,15 +257,28 @@ export default {
         updated_at: serverTimestamp()
       }
 
+      console.log('🔵 [Frontend] Transaction data to save:', JSON.stringify(transactionData, null, 2))
+      console.log('🔵 [Frontend] Adding to Firestore collection "transactions"...')
+
       const docRef = await addDoc(collection(db, 'transactions'), transactionData)
+      
+      console.log('✅ [Frontend] Transaction created in Firestore!')
+      console.log('✅ [Frontend] Document ID:', docRef.id)
+      console.log('✅ [Frontend] This should trigger onTransactionCreated Firebase Function')
+      console.log('✅ [Frontend] Waiting for N8N categorization...')
       
       // Update account balance
       if (transaction.account_id) {
+        console.log('🔵 [Frontend] Updating account balance...')
         await this.updateAccountBalance(transaction.account_id, transaction.amount, transaction.type)
+        console.log('✅ [Frontend] Account balance updated')
       }
 
-      return { id: docRef.id, ...transactionData }
+      const result = { id: docRef.id, ...transactionData }
+      console.log('✅ [Frontend] Transaction creation complete:', result.id)
+      return result
     } catch (error) {
+      console.error('❌ [Frontend] Error creating transaction:', error)
       throw new Error(`Failed to create transaction: ${error.message}`)
     }
   },
