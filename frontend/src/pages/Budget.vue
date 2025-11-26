@@ -180,6 +180,7 @@
                     </template>
                   </q-td>
                 </q-tr>
+                </template>
 
                 <!-- Add Income Budget Row -->
                 <q-tr v-if="showAddIncome" key="add-income-row">
@@ -448,6 +449,7 @@
                     </template>
                   </q-td>
                 </q-tr>
+                </template>
 
                 <!-- Add Expense Budget Row -->
                 <q-tr v-if="showAddExpense" key="add-expense-row">
