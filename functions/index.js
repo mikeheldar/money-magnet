@@ -557,13 +557,16 @@ exports.syncPlaidAccounts = onCall(async (request) => {
 const getN8NWebhookUrl = (workflowName) => {
   // For v2 functions, use environment variables
   // Set via: firebase functions:secrets:set N8N_WEBHOOK_URL
-  // Or via: firebase functions:config:set n8n.webhook_url (then access via process.env)
-  const baseUrl = process.env.N8N_WEBHOOK_URL || '';
+  const baseUrl = (process.env.N8N_WEBHOOK_URL || '').trim().replace(/[\r\n]/g, '');
   if (!baseUrl) {
     console.warn('⚠️ [Function] N8N webhook URL not configured. Set N8N_WEBHOOK_URL environment variable: firebase functions:secrets:set N8N_WEBHOOK_URL');
     return null;
   }
-  return `${baseUrl.replace(/\/$/, '')}/${workflowName}`;
+  // Clean up the base URL and construct the full webhook URL
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '').replace(/[\r\n]/g, '');
+  const fullUrl = `${cleanBaseUrl}/${workflowName}`;
+  console.log('🔵 [Function] Constructed webhook URL:', fullUrl);
+  return fullUrl;
 };
 
 // Trigger N8N when a new transaction is created (without category)
