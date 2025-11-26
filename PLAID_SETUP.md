@@ -55,9 +55,16 @@ This will deploy three functions:
 
 Plaid provides standard test credentials that work without creating custom users:
 
-**For any bank in Sandbox:**
+**For basic account testing (accounts only, no transactions):**
 - **Username**: `user_good`
 - **Password**: `pass_good`
+- ⚠️ **Note**: This user does NOT include transaction data by default
+
+**For transaction testing (accounts + transactions):**
+- **Username**: `user_transactions_dynamic`
+- **Password**: Any non-blank string (e.g., `pass_good`)
+- **Institution**: Use a non-OAuth institution like "First Platypus Bank" (`ins_109508`)
+- ✅ **This user includes transaction data** - transactions will be imported automatically
 
 **For MFA (Multi-Factor Authentication) testing:**
 - **Username**: `user_good`

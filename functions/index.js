@@ -396,6 +396,12 @@ exports.syncPlaidAccounts = onCall(async (request) => {
 
       transactions = allTransactions;
       console.log(`✅ [Function] Found ${transactions.length} total transactions from Plaid.`);
+      
+      if (transactions.length === 0) {
+        console.log('⚠️ [Function] WARNING: No transactions found in Plaid response.');
+        console.log('⚠️ [Function] This is normal for the standard "user_good" test user.');
+        console.log('⚠️ [Function] To test transactions, use "user_transactions_dynamic" as the username.');
+      }
 
       // Get existing transactions to avoid duplicates
       const existingTransactionsQuery = await admin.firestore()
@@ -500,10 +506,21 @@ exports.syncPlaidAccounts = onCall(async (request) => {
         console.log(`✅ [Function] Successfully imported ${newTransactionsCount} new transactions.`);
         transactionsCount = newTransactionsCount;
       } else {
-        console.log('ℹ️ [Function] No new transactions to import (all already exist).');
+        if (transactions.length === 0) {
+          console.log('ℹ️ [Function] No transactions found in Plaid response. This is normal for some test users.');
+          console.log('ℹ️ [Function] To test with transactions, use a custom test user with transaction data configured.');
+        } else {
+          console.log(`ℹ️ [Function] Found ${transactions.length} transactions from Plaid, but all ${transactions.length} already exist in Firestore.`);
+        }
       }
     } catch (error) {
       console.error('❌ [Function] Error fetching/importing transactions:', error);
+      console.error('  - Error type:', error.constructor?.name);
+      console.error('  - Error message:', error.message);
+      console.error('  - Error stack:', error.stack);
+      if (error.response?.data) {
+        console.error('  - Plaid error response:', JSON.stringify(error.response.data, null, 2));
+      }
       // Don't fail the whole sync if transactions fail - accounts are more important
       console.warn('⚠️ [Function] Continuing without transactions...');
     }
