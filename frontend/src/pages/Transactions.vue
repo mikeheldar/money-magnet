@@ -26,17 +26,35 @@
             bordered
             :loading="loading"
             :pagination="{ rowsPerPage: 0 }"
+            :filter="filter"
             class="transactions-table"
+            :rows-per-page-options="[0]"
           >
             <template v-slot:top>
-              <q-btn
-                color="primary"
-                icon="add"
-                label="Add Transaction"
-                @click="showAddRow = true"
-                :disable="showAddRow"
-              />
+              <div class="row full-width items-center q-gutter-sm">
+                <q-btn
+                  color="primary"
+                  icon="add"
+                  label="Add Transaction"
+                  @click="showAddRow = true"
+                  :disable="showAddRow"
+                />
+                <q-space />
+                <q-input
+                  v-model="filter"
+                  placeholder="Search transactions..."
+                  dense
+                  outlined
+                  clearable
+                  class="col-12 col-sm-4"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="search" />
+                  </template>
+                </q-input>
+              </div>
             </template>
+            
 
             <template v-slot:body="props">
               <!-- Add new row at top -->
@@ -148,8 +166,11 @@
                     outlined
                   />
                 </q-td>
-                <q-td v-else>
-                  {{ props.row.description || 'No description' }}
+                <q-td v-else class="description-cell">
+                  <q-tooltip v-if="props.row.description && props.row.description.length > 30">
+                    {{ props.row.description }}
+                  </q-tooltip>
+                  <span class="text-ellipsis">{{ props.row.description || 'No description' }}</span>
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
@@ -190,8 +211,11 @@
                     map-options
                   />
                 </q-td>
-                <q-td v-else>
-                  {{ props.row.account_name || '-' }}
+                <q-td v-else class="account-cell">
+                  <q-tooltip v-if="props.row.account_name && props.row.account_name.length > 20">
+                    {{ props.row.account_name }}
+                  </q-tooltip>
+                  <span class="text-ellipsis">{{ props.row.account_name || '-' }}</span>
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
@@ -201,8 +225,11 @@
                     outlined
                   />
                 </q-td>
-                <q-td v-else>
-                  {{ props.row.category_name || '-' }}
+                <q-td v-else class="category-cell">
+                  <q-tooltip v-if="props.row.category_name && props.row.category_name.length > 15">
+                    {{ props.row.category_name }}
+                  </q-tooltip>
+                  <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
                 </q-td>
 
                 <q-td>
@@ -266,14 +293,79 @@ export default defineComponent({
     const showAddRow = ref(false)
     const editingId = ref(null)
     
+    const filter = ref('')
+    
     const columns = [
-      { name: 'date', label: 'Date', field: 'date', align: 'left', sortable: true },
-      { name: 'description', label: 'Description', field: 'description', align: 'left', sortable: true },
-      { name: 'type', label: 'Type', field: 'type', align: 'left', sortable: true },
-      { name: 'amount', label: 'Amount', field: 'amount', align: 'right', sortable: true },
-      { name: 'account', label: 'Account', field: 'account_name', align: 'left', sortable: true },
-      { name: 'category', label: 'Category', field: 'category_name', align: 'left', sortable: true },
-      { name: 'actions', label: 'Actions', field: 'actions', align: 'center', sortable: false }
+      { 
+        name: 'date', 
+        label: 'Date', 
+        field: 'date', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 120px; min-width: 120px;',
+        classes: 'date-cell'
+      },
+      { 
+        name: 'description', 
+        label: 'Description', 
+        field: 'description', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 250px; min-width: 200px; max-width: 300px;',
+        classes: 'description-cell'
+      },
+      { 
+        name: 'type', 
+        label: 'Type', 
+        field: 'type', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 100px; min-width: 100px;',
+        classes: 'type-cell'
+      },
+      { 
+        name: 'amount', 
+        label: 'Amount', 
+        field: 'amount', 
+        align: 'right', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 120px; min-width: 120px;',
+        classes: 'amount-cell'
+      },
+      { 
+        name: 'account', 
+        label: 'Account', 
+        field: 'account_name', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 180px; min-width: 150px;',
+        classes: 'account-cell'
+      },
+      { 
+        name: 'category', 
+        label: 'Category', 
+        field: 'category_name', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 150px; min-width: 120px;',
+        classes: 'category-cell'
+      },
+      { 
+        name: 'actions', 
+        label: 'Actions', 
+        field: 'actions', 
+        align: 'center', 
+        sortable: false,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 100px; min-width: 100px;',
+        classes: 'actions-cell'
+      }
     ]
     
     const newTransaction = ref({
@@ -298,7 +390,23 @@ export default defineComponent({
     const accountOptions = ref([])
 
     const displayRows = computed(() => {
-      return transactions.value
+      let filtered = transactions.value
+      
+      if (filter.value) {
+        const searchTerm = filter.value.toLowerCase()
+        filtered = filtered.filter(t => {
+          return (
+            (t.description || '').toLowerCase().includes(searchTerm) ||
+            (t.type || '').toLowerCase().includes(searchTerm) ||
+            (t.account_name || '').toLowerCase().includes(searchTerm) ||
+            (t.category_name || '').toLowerCase().includes(searchTerm) ||
+            formatCurrency(Math.abs(t.amount || 0)).includes(searchTerm) ||
+            formatDate(t.date).toLowerCase().includes(searchTerm)
+          )
+        })
+      }
+      
+      return filtered
     })
 
     const formatCurrency = (value) => {
@@ -485,6 +593,7 @@ export default defineComponent({
       accounts,
       accountOptions,
       columns,
+      filter,
       loading,
       adding,
       updating,
@@ -510,6 +619,77 @@ export default defineComponent({
 <style scoped>
 .transactions-table {
   font-size: 14px;
+}
+
+/* Prominent headers */
+.transactions-table :deep(thead th) {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 14px 8px;
+  border-bottom: 2px solid #3BA99F;
+  background-color: #f5f5f5 !important;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Fixed column widths with ellipsis */
+.transactions-table :deep(.description-cell) {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transactions-table :deep(.description-cell .text-ellipsis) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.transactions-table :deep(.account-cell),
+.transactions-table :deep(.category-cell) {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Responsive column hiding */
+@media (max-width: 1024px) {
+  .transactions-table :deep(.category-cell) {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .transactions-table :deep(.account-cell) {
+    display: none;
+  }
+  
+  .transactions-table :deep(.description-cell) {
+    max-width: 150px;
+  }
+}
+
+@media (max-width: 600px) {
+  .transactions-table :deep(.type-cell) {
+    display: none;
+  }
+}
+
+/* Table cell padding */
+.transactions-table :deep(td) {
+  padding: 10px 8px;
+}
+
+/* Hover effects */
+.transactions-table :deep(tbody tr:hover) {
+  background-color: #f9f9f9;
 }
 </style>
 
