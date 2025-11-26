@@ -18,19 +18,42 @@ const getPlaidConfig = () => {
   try {
     // For v2 functions, secrets are available as environment variables
     // They're declared in setGlobalOptions above
-    const clientId = process.env.PLAID_CLIENT_ID;
-    const secret = process.env.PLAID_SECRET;
+    let clientId = process.env.PLAID_CLIENT_ID;
+    let secret = process.env.PLAID_SECRET;
+    
+    // Trim whitespace and newlines that might have been added when setting secrets
+    if (clientId) clientId = clientId.trim();
+    if (secret) secret = secret.trim();
     
     console.log('🔵 [Function] Checking Plaid credentials...');
-    console.log('  - PLAID_CLIENT_ID:', clientId ? `Set (${clientId.substring(0, 8)}...)` : 'Missing');
-    console.log('  - PLAID_SECRET:', secret ? 'Set (***)' : 'Missing');
+    console.log('  - PLAID_CLIENT_ID:', clientId ? `Set (length: ${clientId.length}, first 8: ${clientId.substring(0, 8)})` : 'Missing');
+    console.log('  - PLAID_SECRET:', secret ? `Set (length: ${secret.length})` : 'Missing');
+    
+    // Validate the values don't contain invalid characters
+    if (clientId) {
+      const invalidChars = /[\r\n\t]/.test(clientId);
+      if (invalidChars) {
+        console.error('❌ [Function] PLAID_CLIENT_ID contains invalid characters (newlines/tabs)');
+        clientId = clientId.replace(/[\r\n\t]/g, '');
+        console.log('  - Trimmed clientId, new length:', clientId.length);
+      }
+    }
+    
+    if (secret) {
+      const invalidChars = /[\r\n\t]/.test(secret);
+      if (invalidChars) {
+        console.error('❌ [Function] PLAID_SECRET contains invalid characters (newlines/tabs)');
+        secret = secret.replace(/[\r\n\t]/g, '');
+        console.log('  - Trimmed secret, new length:', secret.length);
+      }
+    }
     
     if (!clientId || !secret) {
       console.error('❌ [Function] Plaid credentials not found in environment variables');
       throw new Error('Plaid credentials not configured. Please set secrets: firebase functions:secrets:set PLAID_CLIENT_ID PLAID_SECRET');
     }
     
-    console.log('✅ [Function] Plaid credentials found');
+    console.log('✅ [Function] Plaid credentials found and validated');
     return { clientId, secret };
   } catch (error) {
     console.error('❌ [Function] Error getting Plaid config:', error);
