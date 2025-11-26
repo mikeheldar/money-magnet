@@ -1,8 +1,10 @@
 const functions = require('firebase-functions');
 const { onCall } = require('firebase-functions/v2/https');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const axios = require('axios');
 
 admin.initializeApp();
 
@@ -544,6 +546,312 @@ exports.syncPlaidAccounts = onCall(async (request) => {
   } catch (error) {
     console.error('Error syncing accounts:', error);
     throw new functions.https.HttpsError('internal', 'Failed to sync accounts', error);
+  }
+});
+
+// ============================================================================
+// N8N Integration: Smart Transaction Categorization
+// ============================================================================
+
+// Get N8N webhook URL from environment or config
+const getN8NWebhookUrl = (workflowName) => {
+  const baseUrl = process.env.N8N_WEBHOOK_URL || functions.config().n8n?.webhook_url || '';
+  if (!baseUrl) {
+    console.warn('⚠️ [Function] N8N webhook URL not configured. Set N8N_WEBHOOK_URL environment variable or firebase functions:config:set n8n.webhook_url');
+    return null;
+  }
+  return `${baseUrl.replace(/\/$/, '')}/${workflowName}`;
+};
+
+// Trigger N8N when a new transaction is created (without category)
+exports.onTransactionCreated = onDocumentCreated(
+  {
+    document: 'transactions/{transactionId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const transaction = event.data.data();
+    const transactionId = event.params.transactionId;
+
+    console.log('🔵 [Function] New transaction created:', transactionId);
+
+    // Skip if already has category (user set it manually)
+    if (transaction.category_id) {
+      console.log('ℹ️ [Function] Transaction already has category, skipping N8N');
+      return null;
+    }
+
+    // Skip if it's a Plaid import that already has category
+    if (transaction.plaid_category_id || transaction.external_id) {
+      // Still try to categorize if no category_id
+      if (!transaction.category_id) {
+        console.log('🔵 [Function] Plaid transaction without category, will categorize');
+      } else {
+        console.log('ℹ️ [Function] Plaid transaction already categorized, skipping');
+        return null;
+      }
+    }
+
+    const webhookUrl = getN8NWebhookUrl('categorize-transaction');
+    if (!webhookUrl) {
+      console.warn('⚠️ [Function] N8N not configured, skipping categorization');
+      return null;
+    }
+
+    try {
+      console.log('🔵 [Function] Calling N8N webhook for categorization...');
+      const response = await axios.post(
+        webhookUrl,
+        {
+          transaction_id: transactionId,
+          user_id: transaction.user_id,
+          description: transaction.description || '',
+          merchant: transaction.merchant || '',
+          amount: transaction.amount,
+          type: transaction.type,
+          date: transaction.date,
+        },
+        {
+          timeout: 15000, // 15 second timeout
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      console.log('✅ [Function] N8N response received:', response.data);
+
+      // Update transaction with suggested category
+      if (response.data && response.data.category_id) {
+        const transactionRef = admin.firestore().collection('transactions').doc(transactionId);
+        await transactionRef.update({
+          category_id: response.data.category_id,
+          category_suggested: true, // Flag to show it was auto-categorized
+          category_confidence: response.data.confidence || 0.8,
+          category_source: response.data.source || 'n8n',
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log('✅ [Function] Transaction updated with suggested category:', response.data.category_id);
+      } else {
+        console.log('ℹ️ [Function] N8N did not return a category_id');
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ [Function] N8N categorization error:', error.message);
+      if (error.response) {
+        console.error('  - Response status:', error.response.status);
+        console.error('  - Response data:', error.response.data);
+      }
+      // Don't throw - allow transaction to be created without category
+      return null;
+    }
+  }
+);
+
+// Learn from user corrections when they change a category
+exports.onTransactionUpdated = onDocumentUpdated(
+  {
+    document: 'transactions/{transactionId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const transactionId = event.params.transactionId;
+
+    console.log('🔵 [Function] Transaction updated:', transactionId);
+
+    // Check if category was changed by user
+    const categoryChanged = before.category_id !== after.category_id;
+    const wasAutoCategorized = before.category_suggested === true;
+    const nowHasCategory = !!after.category_id;
+
+    if (categoryChanged && wasAutoCategorized && nowHasCategory) {
+      console.log('🔵 [Function] User corrected auto-categorized transaction, learning from correction...');
+      console.log(`  - Old category: ${before.category_id}`);
+      console.log(`  - New category: ${after.category_id}`);
+
+      const webhookUrl = getN8NWebhookUrl('learn-category');
+      if (!webhookUrl) {
+        console.warn('⚠️ [Function] N8N not configured, skipping learning');
+        return null;
+      }
+
+      try {
+        await axios.post(
+          webhookUrl,
+          {
+            user_id: after.user_id,
+            description: after.description || '',
+            merchant: after.merchant || '',
+            old_category_id: before.category_id,
+            new_category_id: after.category_id,
+            transaction_type: after.type,
+            transaction_id: transactionId,
+          },
+          {
+            timeout: 10000,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        console.log('✅ [Function] Learning data sent to N8N');
+      } catch (error) {
+        console.error('❌ [Function] N8N learning error:', error.message);
+        // Don't throw - learning failure shouldn't break the update
+      }
+    }
+
+    return null;
+  }
+);
+
+// Helper function: Check if a category mapping exists
+exports.checkCategoryMapping = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { user_id, pattern, transaction_type } = request.data;
+
+  if (!pattern || !transaction_type) {
+    throw new functions.https.HttpsError('invalid-argument', 'pattern and transaction_type are required');
+  }
+
+  try {
+    // Query category_mappings collection
+    const mappingsRef = admin.firestore().collection('category_mappings');
+    const snapshot = await mappingsRef
+      .where('user_id', '==', user_id)
+      .where('pattern', '==', pattern)
+      .where('transaction_type', '==', transaction_type)
+      .limit(1)
+      .get();
+
+    if (!snapshot.empty) {
+      const mapping = snapshot.docs[0].data();
+
+      // Update usage count
+      await snapshot.docs[0].ref.update({
+        usage_count: admin.firestore.FieldValue.increment(1),
+        last_used: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        mapping_found: true,
+        category_id: mapping.category_id,
+        category_name: mapping.category_name,
+        confidence: mapping.confidence || 1.0,
+      };
+    }
+
+    return { mapping_found: false };
+  } catch (error) {
+    console.error('Error checking category mapping:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to check category mapping', error);
+  }
+});
+
+// Helper function: Save a learned category mapping
+exports.saveCategoryMapping = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { user_id, pattern, category_id, transaction_type, match_type, confidence } = request.data;
+
+  if (!pattern || !category_id || !transaction_type) {
+    throw new functions.https.HttpsError('invalid-argument', 'pattern, category_id, and transaction_type are required');
+  }
+
+  try {
+    // Get category name
+    const categoryDoc = await admin.firestore().collection('categories').doc(category_id).get();
+
+    if (!categoryDoc.exists()) {
+      throw new functions.https.HttpsError('not-found', 'Category not found');
+    }
+
+    const categoryName = categoryDoc.data().name;
+
+    // Check if mapping already exists
+    const mappingsRef = admin.firestore().collection('category_mappings');
+    const existing = await mappingsRef
+      .where('user_id', '==', user_id)
+      .where('pattern', '==', pattern)
+      .where('transaction_type', '==', transaction_type)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      // Update existing mapping
+      await existing.docs[0].ref.update({
+        category_id: category_id,
+        category_name: categoryName,
+        confidence: confidence || 1.0,
+        match_type: match_type || 'description',
+        usage_count: admin.firestore.FieldValue.increment(1),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('✅ [Function] Updated existing category mapping');
+    } else {
+      // Create new mapping
+      await mappingsRef.add({
+        user_id: user_id,
+        pattern: pattern,
+        category_id: category_id,
+        category_name: categoryName,
+        transaction_type: transaction_type,
+        match_type: match_type || 'description',
+        confidence: confidence || 1.0,
+        usage_count: 1,
+        last_used: admin.firestore.FieldValue.serverTimestamp(),
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('✅ [Function] Created new category mapping');
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving category mapping:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to save category mapping', error);
+  }
+});
+
+// Helper function: Get user's categories
+exports.getUserCategories = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { user_id, type } = request.data;
+
+  if (!user_id) {
+    throw new functions.https.HttpsError('invalid-argument', 'user_id is required');
+  }
+
+  try {
+    const categoriesRef = admin.firestore().collection('categories');
+    let query = categoriesRef.where('user_id', '==', user_id);
+
+    if (type) {
+      query = query.where('type', '==', type);
+    }
+
+    const snapshot = await query.get();
+
+    const categories = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    return { categories };
+  } catch (error) {
+    console.error('Error getting user categories:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to get user categories', error);
   }
 });
 

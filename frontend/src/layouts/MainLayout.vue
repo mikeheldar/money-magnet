@@ -132,6 +132,75 @@
           header
           class="text-grey-8"
         >
+          Trading & AI
+        </q-item-label>
+
+        <q-item
+          clickable
+          v-ripple
+          to="/trading/insights"
+        >
+          <q-item-section avatar>
+            <q-icon name="insights" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>AI Insights</q-item-label>
+            <q-item-label caption>Smart Recommendations</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          to="/trading/automation"
+        >
+          <q-item-section avatar>
+            <q-icon name="settings_ethernet" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Automation</q-item-label>
+            <q-item-label caption>Workflows & Rules</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          to="/trading/analysis"
+        >
+          <q-item-section avatar>
+            <q-icon name="analytics" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Market Analysis</q-item-label>
+            <q-item-label caption>Trends & Predictions</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
+          to="/trading/portfolio"
+        >
+          <q-item-section avatar>
+            <q-icon name="pie_chart" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Portfolio</q-item-label>
+            <q-item-label caption>Holdings & Performance</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-separator spaced />
+
+        <q-item-label
+          header
+          class="text-grey-8"
+        >
           Settings
         </q-item-label>
 

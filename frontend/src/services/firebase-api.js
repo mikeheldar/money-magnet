@@ -1140,6 +1140,130 @@ export default {
       console.error('Plaid sync accounts error:', error)
       throw new Error(`Failed to sync Plaid accounts: ${error.message || error.code || 'Unknown error'}`)
     }
+  },
+
+  // Trading & AI Features
+  async getAutomationSettings() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const settingsRef = doc(db, 'automation_settings', userId)
+      const settingsDoc = await getDoc(settingsRef)
+      
+      if (settingsDoc.exists()) {
+        return { id: settingsDoc.id, ...settingsDoc.data() }
+      }
+      
+      // Return default settings
+      return {
+        rules: {
+          autoCategorize: true,
+          budgetAlerts: true,
+          anomalyDetection: true,
+          recurringDetection: true
+        },
+        n8n_webhook_url: ''
+      }
+    } catch (error) {
+      throw new Error(`Failed to get automation settings: ${error.message}`)
+    }
+  },
+
+  async updateAutomationRule(ruleName, value) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const settingsRef = doc(db, 'automation_settings', userId)
+      const settingsDoc = await getDoc(settingsRef)
+      
+      const currentData = settingsDoc.exists() ? settingsDoc.data() : { rules: {} }
+      
+      await updateDoc(settingsRef, {
+        rules: {
+          ...currentData.rules,
+          [ruleName]: value
+        },
+        updated_at: serverTimestamp()
+      }, { merge: true })
+      
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to update automation rule: ${error.message}`)
+    }
+  },
+
+  async getWorkflows() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const workflowsRef = collection(db, 'workflows')
+      const q = query(
+        workflowsRef,
+        where('user_id', '==', userId)
+      )
+      
+      const snapshot = await getDocs(q)
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+    } catch (error) {
+      throw new Error(`Failed to get workflows: ${error.message}`)
+    }
+  },
+
+  async createWorkflow(workflow) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const workflowData = {
+        ...workflow,
+        user_id: userId,
+        active: false,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      }
+
+      const docRef = await addDoc(collection(db, 'workflows'), workflowData)
+      return { id: docRef.id, ...workflowData }
+    } catch (error) {
+      throw new Error(`Failed to create workflow: ${error.message}`)
+    }
+  },
+
+  async deleteWorkflow(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const workflowRef = doc(db, 'workflows', id)
+      const workflowDoc = await getDoc(workflowRef)
+      
+      if (!workflowDoc.exists()) throw new Error('Workflow not found')
+      if (workflowDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(workflowRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete workflow: ${error.message}`)
+    }
+  },
+
+  async getFinancialNews() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      // This would typically call a Firebase Function that fetches from Finnhub
+      // For now, return empty array - can be enhanced later
+      return []
+    } catch (error) {
+      throw new Error(`Failed to get financial news: ${error.message}`)
+    }
   }
 }
 

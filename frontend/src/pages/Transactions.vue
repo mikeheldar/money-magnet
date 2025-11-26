@@ -238,10 +238,21 @@
                   />
                 </q-td>
                 <q-td v-else class="category-cell">
+                  <div class="row items-center no-wrap">
+                    <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
+                    <q-badge 
+                      v-if="props.row.category_suggested" 
+                      color="blue" 
+                      label="AI" 
+                      class="q-ml-xs"
+                      size="sm"
+                    >
+                      <q-tooltip>Auto-categorized by AI</q-tooltip>
+                    </q-badge>
+                  </div>
                   <q-tooltip v-if="props.row.category_name && props.row.category_name.length > 15">
                     {{ props.row.category_name }}
                   </q-tooltip>
-                  <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
                 </q-td>
 
                 <q-td>
