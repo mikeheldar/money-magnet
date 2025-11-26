@@ -619,7 +619,27 @@ export default defineComponent({
               
               console.log('🟢 [Accounts] Syncing accounts from Plaid...')
               // Sync accounts from Plaid
-            } catch (err) {
+            const syncResult = await firebaseApi.syncPlaidAccounts(result.access_token)
+              console.log('✅ [Accounts] Sync complete:', syncResult)
+              
+              const accountsCount = syncResult.accountsCount || syncResult.accounts?.length || 0
+              const transactionsCount = syncResult.transactionsCount || 0
+              
+              let message = `Successfully connected ${accountsCount} account(s)`
+              if (transactionsCount > 0) {
+                message += ` and imported ${transactionsCount} transaction(s)`
+              }
+              message += ` from ${metadata.institution?.name || 'your bank'}`
+              
+              $q.notify({
+                type: 'positive',
+                message: message,
+                timeout: 5000
+              })
+              
+              // Reload accounts
+              await loadAccounts()
+              } catch (err) {
               console.error('❌ [Accounts] Error syncing Plaid accounts:', err)
               console.error('  - Error details:', JSON.stringify(err, null, 2))
               $q.notify({
