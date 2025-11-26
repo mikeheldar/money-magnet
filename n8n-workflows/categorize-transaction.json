@@ -32,7 +32,7 @@
         "authentication": "none",
         "sendBody": true,
         "bodyContentType": "json",
-        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"pattern\": $json.pattern,\n    \"transaction_type\": $json.type\n  }\n}",
+        "jsonBody": "={\n  \"data\": {\n    \"user_id\": \"{{ $json.user_id }}\",\n    \"pattern\": \"{{ $json.pattern }}\",\n    \"transaction_type\": \"{{ $json.type }}\"\n  }\n}",
         "options": {}
       },
       "id": "check-mapping",
