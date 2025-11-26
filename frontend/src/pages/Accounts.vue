@@ -639,7 +639,7 @@ export default defineComponent({
               
               // Reload accounts
               await loadAccounts()
-              } catch (err) {
+            } catch (err) {
               console.error('❌ [Accounts] Error syncing Plaid accounts:', err)
               console.error('  - Error details:', JSON.stringify(err, null, 2))
               $q.notify({

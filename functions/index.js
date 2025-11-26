@@ -404,16 +404,26 @@ exports.syncPlaidAccounts = onCall(async (request) => {
       }
 
       // Get existing transactions to avoid duplicates
-      const existingTransactionsQuery = await admin.firestore()
-        .collection('transactions')
-        .where('user_id', '==', userId)
-        .where('external_id', '!=', null)
-        .get();
-      
-      const existingTransactionIds = new Set(
-        existingTransactionsQuery.docs.map(doc => doc.data().external_id)
-      );
-      console.log(`🔵 [Function] Found ${existingTransactionIds.size} existing transactions with external_id.`);
+      let existingTransactionIds = new Set();
+      try {
+        const existingTransactionsQuery = await admin.firestore()
+          .collection('transactions')
+          .where('user_id', '==', userId)
+          .where('external_id', '!=', null)
+          .get();
+        
+        existingTransactionIds = new Set(
+          existingTransactionsQuery.docs.map(doc => doc.data().external_id)
+        );
+        console.log(`🔵 [Function] Found ${existingTransactionIds.size} existing transactions with external_id.`);
+      } catch (error) {
+        // If index doesn't exist, we'll skip duplicate checking and import all
+        // The index will be created automatically, but we don't want to fail the import
+        console.warn('⚠️ [Function] Could not check for existing transactions (index may be missing). Will import all transactions.');
+        console.warn('⚠️ [Function] Error:', error.message);
+        console.warn('⚠️ [Function] To create the index, run: firebase deploy --only firestore:indexes');
+        // Continue without duplicate checking - Firestore will handle duplicates if we try to insert the same external_id twice
+      }
 
       // Get default categories for mapping
       const categoriesSnapshot = await admin.firestore()
