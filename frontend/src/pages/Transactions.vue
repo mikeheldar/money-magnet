@@ -405,13 +405,17 @@ export default defineComponent({
     const categoryOptions = computed(() => {
       // Filter categories based on transaction type
       const type = editingId.value ? editingTransaction.value.type : newTransaction.value.type
+      // Show all categories (both parent groups and children) for the selected type
       return categories.value
-        .filter(c => c.type === type && !c.parent_id) // Only show top-level categories
-        .map(c => ({
-          id: c.id,
-          name: c.name,
-          type: c.type
-        }))
+        .filter(c => c.type === type)
+        .map(c => {
+          const parent = c.parent_id ? categories.value.find(p => p.id === c.parent_id) : null
+          return {
+            id: c.id,
+            name: parent ? `${parent.name} - ${c.name}` : c.name,
+            type: c.type
+          }
+        })
     })
     
     const getCategoryName = (categoryId) => {
