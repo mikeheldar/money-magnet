@@ -116,11 +116,17 @@
                         />
                       </div>
                       <div class="col-2">
-                        <q-input
-                          v-model="newTransaction.category"
+                        <q-select
+                          v-model="newTransaction.category_id"
+                          :options="categories.value.filter(c => c.type === newTransaction.type && !c.parent_id)"
+                          option-label="name"
+                          option-value="id"
                           label="Category"
                           dense
                           outlined
+                          clearable
+                          emit-value
+                          map-options
                         />
                       </div>
                       <div class="col-2">
@@ -219,10 +225,16 @@
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
-                  <q-input
-                    v-model="editingTransaction.category"
+                  <q-select
+                    v-model="editingTransaction.category_id"
+                    :options="categories.value.filter(c => c.type === editingTransaction.type && !c.parent_id)"
+                    option-label="name"
+                    option-value="id"
                     dense
                     outlined
+                    clearable
+                    emit-value
+                    map-options
                   />
                 </q-td>
                 <q-td v-else class="category-cell">
@@ -287,6 +299,7 @@ export default defineComponent({
     const period = ref('monthly')
     const transactions = ref([])
     const accounts = ref([])
+    const categories = ref([])
     const loading = ref(false)
     const adding = ref(false)
     const updating = ref(false)
@@ -373,7 +386,7 @@ export default defineComponent({
       date: new Date().toISOString().split('T')[0],
       type: 'expense',
       description: '',
-      category: '',
+      category_id: null,
       account_id: null
     })
 
@@ -383,11 +396,29 @@ export default defineComponent({
       date: '',
       type: 'expense',
       description: '',
-      category: '',
+      category_id: null,
       account_id: null
     })
 
     const accountOptions = ref([])
+    
+    const categoryOptions = computed(() => {
+      // Filter categories based on transaction type
+      const type = editingId.value ? editingTransaction.value.type : newTransaction.value.type
+      return categories.value
+        .filter(c => c.type === type && !c.parent_id) // Only show top-level categories
+        .map(c => ({
+          id: c.id,
+          name: c.name,
+          type: c.type
+        }))
+    })
+    
+    const getCategoryName = (categoryId) => {
+      if (!categoryId) return null
+      const category = categories.value.find(c => c.id === categoryId)
+      return category ? category.name : null
+    }
 
     const displayRows = computed(() => {
       let filtered = transactions.value
@@ -446,6 +477,17 @@ export default defineComponent({
         })
       }
     }
+    
+    const loadCategories = async () => {
+      try {
+        categories.value = await firebaseApi.getCategories()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to load categories'
+        })
+      }
+    }
 
     const cancelAdd = () => {
       showAddRow.value = false
@@ -454,7 +496,7 @@ export default defineComponent({
         date: new Date().toISOString().split('T')[0],
         type: 'expense',
         description: '',
-        category: '',
+        category_id: null,
         account_id: null
       }
     }
@@ -501,7 +543,7 @@ export default defineComponent({
         date: transaction.date,
         type: transaction.type,
         description: transaction.description || '',
-        category: transaction.category || '',
+        category_id: transaction.category_id || null,
         account_id: transaction.account_id || null
       }
     }
@@ -514,7 +556,7 @@ export default defineComponent({
         date: '',
         type: 'expense',
         description: '',
-        category: '',
+        category_id: null,
         account_id: null
       }
     }
@@ -579,6 +621,7 @@ export default defineComponent({
 
     onMounted(async () => {
       await loadAccounts()
+      await loadCategories()
       await loadTransactions()
     })
 
@@ -591,7 +634,9 @@ export default defineComponent({
       period,
       transactions,
       accounts,
+      categories,
       accountOptions,
+      categoryOptions,
       columns,
       filter,
       loading,
@@ -604,7 +649,9 @@ export default defineComponent({
       displayRows,
       formatCurrency,
       formatDate,
+      getCategoryName,
       loadTransactions,
+      loadCategories,
       cancelAdd,
       onAddTransaction,
       startEdit,

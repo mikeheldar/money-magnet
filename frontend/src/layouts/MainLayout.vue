@@ -114,6 +114,30 @@
         <q-item
           clickable
           v-ripple
+          to="/budget"
+        >
+          <q-item-section avatar>
+            <q-icon name="account_balance_wallet" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Budget</q-item-label>
+            <q-item-label caption>Income & Expenses</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-separator spaced />
+
+        <q-item-label
+          header
+          class="text-grey-8"
+        >
+          Settings
+        </q-item-label>
+
+        <q-item
+          clickable
+          v-ripple
           to="/account-types"
         >
           <q-item-section avatar>
@@ -129,15 +153,15 @@
         <q-item
           clickable
           v-ripple
-          to="/budget"
+          to="/budget-categories"
         >
           <q-item-section avatar>
-            <q-icon name="account_balance_wallet" />
+            <q-icon name="label" />
           </q-item-section>
 
           <q-item-section>
-            <q-item-label>Budget</q-item-label>
-            <q-item-label caption>Income & Expenses</q-item-label>
+            <q-item-label>Budget Categories</q-item-label>
+            <q-item-label caption>Manage Income & Expense Categories</q-item-label>
           </q-item-section>
         </q-item>
 

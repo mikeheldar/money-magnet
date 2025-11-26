@@ -9,6 +9,7 @@ const routes = [
       { path: 'accounts', component: () => import('pages/Accounts.vue') },
       { path: 'account-types', component: () => import('pages/AccountTypes.vue') },
       { path: 'budget', component: () => import('pages/Budget.vue') },
+      { path: 'budget-categories', component: () => import('pages/BudgetCategories.vue') },
       { path: 'seed-data', component: () => import('pages/SeedData.vue') }
     ]
   },

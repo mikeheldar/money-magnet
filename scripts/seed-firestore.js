@@ -83,48 +83,142 @@ async function seedFirestore() {
       });
     }
 
-    // Create transaction categories
-    const categories = [
-      { name: 'Salary', type: 'income', parent_id: null },
-      { name: 'Bonus', type: 'income', parent_id: null },
-      { name: 'Rental Income', type: 'income', parent_id: null },
-      { name: 'Home', type: 'expense', parent_id: null },
-      { name: 'Rent', type: 'expense', parent_id: null }, // Will update parent_id after Home is created
-      { name: 'Utilities', type: 'expense', parent_id: null },
-      { name: 'Maintenance', type: 'expense', parent_id: null },
-      { name: 'Food', type: 'expense', parent_id: null },
-      { name: 'Groceries', type: 'expense', parent_id: null },
-      { name: 'Restaurants', type: 'expense', parent_id: null },
-      { name: 'Transport', type: 'expense', parent_id: null },
-      { name: 'Fuel', type: 'expense', parent_id: null },
-      { name: 'Uber/Lyft', type: 'expense', parent_id: null },
-      { name: 'Subscriptions', type: 'expense', parent_id: null },
-      { name: 'Insurance', type: 'expense', parent_id: null },
-      { name: 'Credit Card Payment', type: 'debt', parent_id: null },
-      { name: 'Loan Payment', type: 'debt', parent_id: null },
-      { name: 'Interest Charges', type: 'debt', parent_id: null },
-      { name: 'Late Fees', type: 'debt', parent_id: null }
+    // Create transaction categories with proper grouping
+    // Income category groups
+    const incomeGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Income',
+      type: 'income',
+      parent_id: null,
+      description: 'All income sources',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Income categories (children of Income group)
+    const incomeCategories = [
+      { name: 'Salary', type: 'income', parent_id: incomeGroupRef.id },
+      { name: 'Bonus', type: 'income', parent_id: incomeGroupRef.id },
+      { name: 'Rental Income', type: 'income', parent_id: incomeGroupRef.id },
+      { name: 'Investment Income', type: 'income', parent_id: incomeGroupRef.id },
+      { name: 'Other Income', type: 'income', parent_id: incomeGroupRef.id }
     ];
 
-    const categoryRefs = {};
-    for (const category of categories) {
-      const ref = await db.collection('categories').add({
+    // Expense category groups
+    const homeGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Home',
+      type: 'expense',
+      parent_id: null,
+      description: 'Housing and home-related expenses',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const foodGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Food',
+      type: 'expense',
+      parent_id: null,
+      description: 'Food and dining expenses',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const transportGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Transport',
+      type: 'expense',
+      parent_id: null,
+      description: 'Transportation expenses',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const entertainmentGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Entertainment',
+      type: 'expense',
+      parent_id: null,
+      description: 'Entertainment and recreation',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const subscriptionsGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Subscriptions',
+      type: 'expense',
+      parent_id: null,
+      description: 'Monthly subscriptions and services',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const insuranceGroupRef = await db.collection('categories').add({
+      user_id: userId,
+      name: 'Insurance',
+      type: 'expense',
+      parent_id: null,
+      description: 'Insurance payments',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Expense categories (children of groups)
+    const expenseCategories = [
+      // Home group children
+      { name: 'Rent', type: 'expense', parent_id: homeGroupRef.id },
+      { name: 'Utilities', type: 'expense', parent_id: homeGroupRef.id },
+      { name: 'Maintenance', type: 'expense', parent_id: homeGroupRef.id },
+      { name: 'Home Insurance', type: 'expense', parent_id: homeGroupRef.id },
+      
+      // Food group children
+      { name: 'Groceries', type: 'expense', parent_id: foodGroupRef.id },
+      { name: 'Restaurants', type: 'expense', parent_id: foodGroupRef.id },
+      { name: 'Coffee & Snacks', type: 'expense', parent_id: foodGroupRef.id },
+      
+      // Transport group children
+      { name: 'Fuel', type: 'expense', parent_id: transportGroupRef.id },
+      { name: 'Uber/Lyft', type: 'expense', parent_id: transportGroupRef.id },
+      { name: 'Public Transit', type: 'expense', parent_id: transportGroupRef.id },
+      { name: 'Car Maintenance', type: 'expense', parent_id: transportGroupRef.id },
+      
+      // Entertainment group children
+      { name: 'Movies', type: 'expense', parent_id: entertainmentGroupRef.id },
+      { name: 'Concerts', type: 'expense', parent_id: entertainmentGroupRef.id },
+      { name: 'Hobbies', type: 'expense', parent_id: entertainmentGroupRef.id },
+      
+      // Subscriptions group children
+      { name: 'Streaming Services', type: 'expense', parent_id: subscriptionsGroupRef.id },
+      { name: 'Software Subscriptions', type: 'expense', parent_id: subscriptionsGroupRef.id },
+      { name: 'Gym Membership', type: 'expense', parent_id: subscriptionsGroupRef.id },
+      
+      // Insurance group children
+      { name: 'Health Insurance', type: 'expense', parent_id: insuranceGroupRef.id },
+      { name: 'Auto Insurance', type: 'expense', parent_id: insuranceGroupRef.id },
+      { name: 'Life Insurance', type: 'expense', parent_id: insuranceGroupRef.id }
+    ];
+
+    // Create all income categories
+    for (const category of incomeCategories) {
+      await db.collection('categories').add({
         user_id: userId,
         ...category,
         created_at: admin.firestore.FieldValue.serverTimestamp(),
         updated_at: admin.firestore.FieldValue.serverTimestamp()
       });
-      categoryRefs[category.name] = ref.id;
     }
 
-    // Update parent categories
-    await db.collection('categories').doc(categoryRefs['Rent']).update({ parent_id: categoryRefs['Home'] });
-    await db.collection('categories').doc(categoryRefs['Utilities']).update({ parent_id: categoryRefs['Home'] });
-    await db.collection('categories').doc(categoryRefs['Maintenance']).update({ parent_id: categoryRefs['Home'] });
-    await db.collection('categories').doc(categoryRefs['Groceries']).update({ parent_id: categoryRefs['Food'] });
-    await db.collection('categories').doc(categoryRefs['Restaurants']).update({ parent_id: categoryRefs['Food'] });
-    await db.collection('categories').doc(categoryRefs['Fuel']).update({ parent_id: categoryRefs['Transport'] });
-    await db.collection('categories').doc(categoryRefs['Uber/Lyft']).update({ parent_id: categoryRefs['Transport'] });
+    // Create all expense categories
+    for (const category of expenseCategories) {
+      await db.collection('categories').add({
+        user_id: userId,
+        ...category,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
 
     console.log('Firestore seed completed successfully!');
     console.log('Note: You need to create a user in Firebase Auth and update the userId in this script');

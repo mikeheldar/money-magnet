@@ -36,16 +36,99 @@
 
               <!-- Income Items (when expanded) -->
               <template v-if="incomeExpanded && props.row.isIncomeHeader">
-                <q-tr
-                  v-for="item in incomeItems"
-                  :key="`income-${item.id || item.name}`"
-                  class="budget-item-row"
-                >
-                  <q-td>
-                    <div style="padding-left: 2rem;">
-                      {{ item.name }}
-                    </div>
-                  </q-td>
+                <template v-for="item in incomeItems" :key="`income-${item.id || item.name}`">
+                  <!-- Group Header Row -->
+                  <q-tr v-if="item.isGroup" class="budget-group-row bg-grey-1">
+                    <q-td>
+                      <div style="padding-left: 2rem;" class="text-weight-medium">
+                        {{ item.name }}
+                      </div>
+                    </q-td>
+                    <q-td class="text-right text-weight-medium">
+                      ${{ formatCurrency(item.budget || 0) }}
+                    </q-td>
+                    <q-td class="text-right text-weight-medium">
+                      ${{ formatCurrency(item.actual || 0) }}
+                    </q-td>
+                    <q-td class="text-right text-weight-medium" :class="item.remaining >= 0 ? 'text-positive' : 'text-negative'">
+                      ${{ formatCurrency(item.remaining || 0) }}
+                    </q-td>
+                    <q-td></q-td>
+                  </q-tr>
+                  <!-- Child Items -->
+                  <template v-if="item.isGroup && item.children">
+                    <q-tr
+                      v-for="child in item.children"
+                      :key="`income-child-${child.id || child.name}`"
+                      class="budget-item-row"
+                    >
+                      <q-td>
+                        <div style="padding-left: 4rem;">
+                          {{ child.name }}
+                        </div>
+                      </q-td>
+                      <q-td class="text-right">
+                        <template v-if="editingBudgetId === child.id">
+                          <q-input
+                            v-model="editingBudget.amount"
+                            type="number"
+                            step="0.01"
+                            dense
+                            outlined
+                            prefix="$"
+                            style="max-width: 120px;"
+                          />
+                        </template>
+                        <template v-else>
+                          ${{ formatCurrency(child.budget || 0) }}
+                        </template>
+                      </q-td>
+                      <q-td class="text-right">
+                        ${{ formatCurrency(child.actual || 0) }}
+                      </q-td>
+                      <q-td class="text-right" :class="child.remaining >= 0 ? 'text-positive' : 'text-negative'">
+                        ${{ formatCurrency(child.remaining || 0) }}
+                      </q-td>
+                      <q-td>
+                        <template v-if="editingBudgetId === child.id">
+                          <q-btn
+                            flat
+                            dense
+                            icon="check"
+                            color="positive"
+                            @click="onSaveBudget(child)"
+                            :loading="savingBudget"
+                          />
+                          <q-btn
+                            flat
+                            dense
+                            icon="close"
+                            color="negative"
+                            @click="cancelEditBudget"
+                          />
+                        </template>
+                        <template v-else>
+                          <q-btn
+                            flat
+                            round
+                            dense
+                            icon="edit"
+                            @click="editBudget(child, 'income')"
+                          />
+                        </template>
+                      </q-td>
+                    </q-tr>
+                  </template>
+                  <!-- Non-group item -->
+                  <q-tr
+                    v-if="!item.isGroup"
+                    class="budget-item-row"
+                  >
+                    <q-td>
+                      <div style="padding-left: 2rem;">
+                        {{ item.name }}
+                      </div>
+                    </q-td>
                   <q-td class="text-right">
                     <template v-if="editingBudgetId === item.id">
                       <q-input
@@ -105,7 +188,7 @@
                       <div class="col-4">
                         <q-select
                           v-model="newBudget.category_id"
-                          :options="incomeCategoryOptions"
+                          :options="categories.value.filter(c => c.type === 'income')"
                           option-label="name"
                           option-value="id"
                           label="Category"
@@ -205,16 +288,107 @@
 
               <!-- Expense Items (when expanded) -->
               <template v-if="expensesExpanded && props.row.isExpenseHeader">
-                <q-tr
-                  v-for="item in expenseItems"
-                  :key="`expense-${item.id || item.name}`"
-                  class="budget-item-row"
-                >
-                  <q-td>
-                    <div style="padding-left: 2rem;">
-                      {{ item.name }}
-                    </div>
-                  </q-td>
+                <template v-for="item in expenseItems" :key="`expense-${item.id || item.name}`">
+                  <!-- Group Header Row -->
+                  <q-tr v-if="item.isGroup" class="budget-group-row bg-grey-1">
+                    <q-td>
+                      <div style="padding-left: 2rem;" class="text-weight-medium">
+                        {{ item.name }}
+                      </div>
+                    </q-td>
+                    <q-td class="text-right text-weight-medium">
+                      ${{ formatCurrency(item.budget || 0) }}
+                    </q-td>
+                    <q-td class="text-right text-weight-medium">
+                      ${{ formatCurrency(item.actual || 0) }}
+                    </q-td>
+                    <q-td class="text-right text-weight-medium" :class="item.remaining >= 0 ? 'text-positive' : 'text-negative'">
+                      ${{ formatCurrency(item.remaining || 0) }}
+                    </q-td>
+                    <q-td></q-td>
+                  </q-tr>
+                  <!-- Child Items -->
+                  <template v-if="item.isGroup && item.children">
+                    <q-tr
+                      v-for="child in item.children"
+                      :key="`expense-child-${child.id || child.name}`"
+                      class="budget-item-row"
+                    >
+                      <q-td>
+                        <div style="padding-left: 4rem;">
+                          {{ child.name }}
+                        </div>
+                      </q-td>
+                      <q-td class="text-right">
+                        <template v-if="editingBudgetId === child.id">
+                          <q-input
+                            v-model="editingBudget.amount"
+                            type="number"
+                            step="0.01"
+                            dense
+                            outlined
+                            prefix="$"
+                            style="max-width: 120px;"
+                          />
+                        </template>
+                        <template v-else>
+                          ${{ formatCurrency(child.budget || 0) }}
+                        </template>
+                      </q-td>
+                      <q-td class="text-right">
+                        ${{ formatCurrency(child.actual || 0) }}
+                      </q-td>
+                      <q-td class="text-right" :class="child.remaining >= 0 ? 'text-positive' : 'text-negative'">
+                        ${{ formatCurrency(child.remaining || 0) }}
+                      </q-td>
+                      <q-td>
+                        <template v-if="editingBudgetId === child.id">
+                          <q-btn
+                            flat
+                            dense
+                            icon="check"
+                            color="positive"
+                            @click="onSaveBudget(child)"
+                            :loading="savingBudget"
+                          />
+                          <q-btn
+                            flat
+                            dense
+                            icon="close"
+                            color="negative"
+                            @click="cancelEditBudget"
+                          />
+                        </template>
+                        <template v-else>
+                          <q-btn
+                            flat
+                            round
+                            dense
+                            icon="edit"
+                            @click="editBudget(child, 'expense')"
+                          />
+                          <q-btn
+                            flat
+                            round
+                            dense
+                            icon="delete"
+                            color="negative"
+                            @click="deleteBudget(child.id)"
+                          />
+                        </template>
+                      </q-td>
+                    </q-tr>
+                  </template>
+                  <!-- Non-group item -->
+                  <q-tr
+                    v-if="!item.isGroup"
+                    class="budget-item-row"
+                  >
+                    <q-td>
+                      <div style="padding-left: 2rem;">
+                        {{ item.name }}
+                      </div>
+                    </q-td>
                   <q-td class="text-right">
                     <template v-if="editingBudgetId === item.id">
                       <q-input
@@ -282,7 +456,7 @@
                       <div class="col-4">
                         <q-select
                           v-model="newBudget.category_id"
-                          :options="expenseCategoryOptions"
+                          :options="categories.value.filter(c => c.type === 'expense')"
                           option-label="name"
                           option-value="id"
                           label="Category"
@@ -413,12 +587,18 @@ export default defineComponent({
     })
 
     const incomeCategoryOptions = computed(() => {
-      return categories.value.filter(c => c.type === 'income')
+      // Only show top-level categories (parent groups) for income
+      return categories.value.filter(c => c.type === 'income' && !c.parent_id)
     })
 
     const expenseCategoryOptions = computed(() => {
-      return categories.value.filter(c => c.type === 'expense')
+      // Only show top-level categories (parent groups) for expenses
+      return categories.value.filter(c => c.type === 'expense' && !c.parent_id)
     })
+    
+    const getChildCategories = (parentId) => {
+      return categories.value.filter(c => c.parent_id === parentId)
+    }
 
     const displayRows = computed(() => {
       const rows = []
@@ -433,32 +613,94 @@ export default defineComponent({
       const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
       const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
       
-      incomeCategoryOptions.value.forEach(category => {
-        const budget = budgets.value.find(b => 
-          b.category_id === category.id && 
-          b.period === 'monthly'
-        )
+      // Group by category groups (parent categories)
+      incomeCategoryOptions.value.forEach(parentCategory => {
+        const childCategories = getChildCategories(parentCategory.id)
         
-        const categoryTransactions = transactions.value.filter(t => 
-          t.category_id === category.id &&
-          t.type === 'income' &&
-          new Date(t.date) >= monthStart &&
-          new Date(t.date) <= monthEnd
-        )
-        
-        const actual = categoryTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
-        const budgetAmount = budget ? parseFloat(budget.amount) : 0
-        const remaining = budgetAmount - actual
-        
-        items.push({
-          id: budget?.id,
-          name: category.name,
-          category_id: category.id,
-          budget: budgetAmount,
-          actual: actual,
-          remaining: remaining,
-          period: budget?.period || 'monthly'
-        })
+        // If no children, show parent as item
+        if (childCategories.length === 0) {
+          const budget = budgets.value.find(b => 
+            b.category_id === parentCategory.id && 
+            b.period === 'monthly'
+          )
+          
+          const categoryTransactions = transactions.value.filter(t => 
+            t.category_id === parentCategory.id &&
+            t.type === 'income' &&
+            new Date(t.date) >= monthStart &&
+            new Date(t.date) <= monthEnd
+          )
+          
+          const actual = categoryTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
+          const budgetAmount = budget ? parseFloat(budget.amount) : 0
+          const remaining = budgetAmount - actual
+          
+          items.push({
+            id: budget?.id,
+            name: parentCategory.name,
+            category_id: parentCategory.id,
+            budget: budgetAmount,
+            actual: actual,
+            remaining: remaining,
+            period: budget?.period || 'monthly',
+            isGroup: false
+          })
+        } else {
+          // Group has children - aggregate transactions by parent group
+          let groupBudget = 0
+          let groupActual = 0
+          const childItems = []
+          
+          // Get all transactions for child categories
+          const allChildTransactions = transactions.value.filter(t => {
+            const cat = categories.value.find(c => c.id === t.category_id)
+            return cat && cat.parent_id === parentCategory.id &&
+                   t.type === 'income' &&
+                   new Date(t.date) >= monthStart &&
+                   new Date(t.date) <= monthEnd
+          })
+          
+          groupActual = allChildTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
+          
+          // Get budgets for child categories
+          childCategories.forEach(childCategory => {
+            const budget = budgets.value.find(b => 
+              b.category_id === childCategory.id && 
+              b.period === 'monthly'
+            )
+            
+            const categoryTransactions = allChildTransactions.filter(t => t.category_id === childCategory.id)
+            const actual = categoryTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
+            const budgetAmount = budget ? parseFloat(budget.amount) : 0
+            const remaining = budgetAmount - actual
+            
+            groupBudget += budgetAmount
+            
+            childItems.push({
+              id: budget?.id,
+              name: childCategory.name,
+              category_id: childCategory.id,
+              budget: budgetAmount,
+              actual: actual,
+              remaining: remaining,
+              period: budget?.period || 'monthly',
+              parent_id: parentCategory.id,
+              isGroup: false
+            })
+          })
+          
+          items.push({
+            id: `group-${parentCategory.id}`,
+            name: parentCategory.name,
+            category_id: parentCategory.id,
+            budget: groupBudget,
+            actual: groupActual,
+            remaining: groupBudget - groupActual,
+            period: 'monthly',
+            isGroup: true,
+            children: childItems
+          })
+        }
       })
       
       return items.sort((a, b) => a.name.localeCompare(b.name))
@@ -470,32 +712,94 @@ export default defineComponent({
       const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
       const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
       
-      expenseCategoryOptions.value.forEach(category => {
-        const budget = budgets.value.find(b => 
-          b.category_id === category.id && 
-          b.period === 'monthly'
-        )
+      // Group by category groups (parent categories)
+      expenseCategoryOptions.value.forEach(parentCategory => {
+        const childCategories = getChildCategories(parentCategory.id)
         
-        const categoryTransactions = transactions.value.filter(t => 
-          t.category_id === category.id &&
-          t.type === 'expense' &&
-          new Date(t.date) >= monthStart &&
-          new Date(t.date) <= monthEnd
-        )
-        
-        const actual = categoryTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
-        const budgetAmount = budget ? parseFloat(budget.amount) : 0
-        const remaining = budgetAmount - actual
-        
-        items.push({
-          id: budget?.id,
-          name: category.name,
-          category_id: category.id,
-          budget: budgetAmount,
-          actual: actual,
-          remaining: remaining,
-          period: budget?.period || 'monthly'
-        })
+        // If no children, show parent as item
+        if (childCategories.length === 0) {
+          const budget = budgets.value.find(b => 
+            b.category_id === parentCategory.id && 
+            b.period === 'monthly'
+          )
+          
+          const categoryTransactions = transactions.value.filter(t => 
+            t.category_id === parentCategory.id &&
+            t.type === 'expense' &&
+            new Date(t.date) >= monthStart &&
+            new Date(t.date) <= monthEnd
+          )
+          
+          const actual = categoryTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
+          const budgetAmount = budget ? parseFloat(budget.amount) : 0
+          const remaining = budgetAmount - actual
+          
+          items.push({
+            id: budget?.id,
+            name: parentCategory.name,
+            category_id: parentCategory.id,
+            budget: budgetAmount,
+            actual: actual,
+            remaining: remaining,
+            period: budget?.period || 'monthly',
+            isGroup: false
+          })
+        } else {
+          // Group has children - aggregate transactions by parent group
+          let groupBudget = 0
+          let groupActual = 0
+          const childItems = []
+          
+          // Get all transactions for child categories
+          const allChildTransactions = transactions.value.filter(t => {
+            const cat = categories.value.find(c => c.id === t.category_id)
+            return cat && cat.parent_id === parentCategory.id &&
+                   t.type === 'expense' &&
+                   new Date(t.date) >= monthStart &&
+                   new Date(t.date) <= monthEnd
+          })
+          
+          groupActual = allChildTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
+          
+          // Get budgets for child categories
+          childCategories.forEach(childCategory => {
+            const budget = budgets.value.find(b => 
+              b.category_id === childCategory.id && 
+              b.period === 'monthly'
+            )
+            
+            const categoryTransactions = allChildTransactions.filter(t => t.category_id === childCategory.id)
+            const actual = categoryTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
+            const budgetAmount = budget ? parseFloat(budget.amount) : 0
+            const remaining = budgetAmount - actual
+            
+            groupBudget += budgetAmount
+            
+            childItems.push({
+              id: budget?.id,
+              name: childCategory.name,
+              category_id: childCategory.id,
+              budget: budgetAmount,
+              actual: actual,
+              remaining: remaining,
+              period: budget?.period || 'monthly',
+              parent_id: parentCategory.id,
+              isGroup: false
+            })
+          })
+          
+          items.push({
+            id: `group-${parentCategory.id}`,
+            name: parentCategory.name,
+            category_id: parentCategory.id,
+            budget: groupBudget,
+            actual: groupActual,
+            remaining: groupBudget - groupActual,
+            period: 'monthly',
+            isGroup: true,
+            children: childItems
+          })
+        }
       })
       
       return items.sort((a, b) => a.name.localeCompare(b.name))
@@ -728,6 +1032,7 @@ export default defineComponent({
       expenseItems,
       totalIncome,
       totalExpenses,
+      getChildCategories,
       formatCurrency,
       cancelAddBudget,
       onAddBudget,

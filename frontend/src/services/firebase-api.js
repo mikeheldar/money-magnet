@@ -843,6 +843,65 @@ export default {
     }
   },
 
+  async createCategory(category) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const categoryData = {
+        ...category,
+        user_id: userId,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      }
+
+      const docRef = await addDoc(collection(db, 'categories'), categoryData)
+      return { id: docRef.id, ...categoryData }
+    } catch (error) {
+      throw new Error(`Failed to create category: ${error.message}`)
+    }
+  },
+
+  async updateCategory(id, category) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const categoryRef = doc(db, 'categories', id)
+      const categoryDoc = await getDoc(categoryRef)
+      
+      if (!categoryDoc.exists()) throw new Error('Category not found')
+      if (categoryDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await updateDoc(categoryRef, {
+        ...category,
+        updated_at: serverTimestamp()
+      })
+
+      return { id, ...category }
+    } catch (error) {
+      throw new Error(`Failed to update category: ${error.message}`)
+    }
+  },
+
+  async deleteCategory(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const categoryRef = doc(db, 'categories', id)
+      const categoryDoc = await getDoc(categoryRef)
+      
+      if (!categoryDoc.exists()) throw new Error('Category not found')
+      if (categoryDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(categoryRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete category: ${error.message}`)
+    }
+  },
+
   // Forecast
   async getForecast(targetDate) {
     try {
