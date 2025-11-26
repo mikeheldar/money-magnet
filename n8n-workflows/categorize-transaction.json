@@ -125,7 +125,7 @@
         "authentication": "none",
         "sendBody": true,
         "bodyContentType": "json",
-        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"type\": $json.type\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({\n  data: {\n    user_id: $json.user_id || '',\n    type: $json.type || 'expense'\n  }\n}) }}",
         "options": {}
       },
       "id": "get-categories",

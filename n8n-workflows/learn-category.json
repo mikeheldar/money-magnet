@@ -28,11 +28,11 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/saveCategoryMapping",
+        "url": "=https://us-central1-money-magnet-cf5a4.cloudfunctions.net/saveCategoryMappingHttp",
         "authentication": "none",
         "sendBody": true,
         "bodyContentType": "json",
-        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"pattern\": $json.pattern,\n    \"category_id\": $json.new_category_id,\n    \"transaction_type\": $json.transaction_type,\n    \"match_type\": $json.match_type,\n    \"confidence\": 1.0\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({\n  data: {\n    user_id: $json.user_id || '',\n    pattern: $json.pattern || '',\n    category_id: $json.new_category_id || '',\n    transaction_type: $json.transaction_type || '',\n    match_type: $json.match_type || 'description',\n    confidence: 1.0\n  }\n}) }}",
         "options": {}
       },
       "id": "save-mapping",
