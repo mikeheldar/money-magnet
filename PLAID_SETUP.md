@@ -49,14 +49,58 @@ This will deploy three functions:
 5. Select a test institution (e.g., "First Platypus Bank")
 6. Connect your accounts
 
-## How It Works
+## Testing with Plaid Sandbox
+
+### Standard Test Credentials
+
+Plaid provides standard test credentials that work without creating custom users:
+
+**For any bank in Sandbox:**
+- **Username**: `user_good`
+- **Password**: `pass_good`
+
+**For MFA (Multi-Factor Authentication) testing:**
+- **Username**: `user_good`
+- **Password**: `mfa_device`
+- Then enter code: `1234`
+
+**For error testing:**
+- **Username**: `user_good`
+- **Password**: `pass_good`
+- Select an institution that returns errors (e.g., "First Platypus Bank" for some error scenarios)
+
+### Creating Custom Test Users
+
+1. Go to [Plaid Dashboard](https://dashboard.plaid.com/)
+2. Navigate to **Sandbox** → **Test Users** tab
+3. Click **"Create user"** button
+4. Fill in:
+   - **Username**: A unique suffix (e.g., `my_test_user`)
+   - **Description**: Optional description
+   - **Config**: JSON configuration (optional, for advanced testing)
+5. Click **"Create user"**
+
+Custom users allow you to:
+- Test specific account scenarios
+- Configure custom account data
+- Test different institution responses
+
+### Recommended Test Institutions
+
+For Sandbox testing, use these test institutions:
+- **First Platypus Bank** - General testing
+- **First Gingham Credit Union** - Credit union testing
+- **Bristlecone** - Investment accounts
+
+### How It Works
 
 1. **User clicks "Connect with Plaid"**
    - Frontend calls `createPlaidLinkToken` Firebase Function
    - Receives a link token
 
 2. **Plaid Link opens**
-   - User selects their bank and logs in
+   - User selects a test institution (e.g., "First Platypus Bank")
+   - User enters test credentials (`user_good` / `pass_good`)
    - Plaid returns a public token
 
 3. **Exchange token**

@@ -67,18 +67,27 @@ const getPlaidClient = () => {
   if (!plaidClient) {
     try {
       const { clientId, secret } = getPlaidConfig();
+      
+      // Validate and clean header values (remove any invalid characters)
+      const cleanClientId = String(clientId).trim().replace(/[\r\n\t]/g, '');
+      const cleanSecret = String(secret).trim().replace(/[\r\n\t]/g, '');
+      
+      console.log('🔵 [Function] Creating Plaid client with cleaned credentials');
+      console.log('  - Client ID length:', cleanClientId.length);
+      console.log('  - Secret length:', cleanSecret.length);
+      
       plaidClient = new PlaidApi(
         new Configuration({
           basePath: PlaidEnvironments.sandbox, // Use sandbox for development
           baseOptions: {
             headers: {
-              'PLAID-CLIENT-ID': clientId,
-              'PLAID-SECRET': secret,
+              'PLAID-CLIENT-ID': cleanClientId,
+              'PLAID-SECRET': cleanSecret,
             },
           },
         })
       );
-      console.log('Plaid client initialized successfully');
+      console.log('✅ [Function] Plaid client initialized successfully');
     } catch (error) {
       console.error('Failed to initialize Plaid client:', error);
       throw error;
