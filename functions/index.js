@@ -10,23 +10,30 @@ admin.initializeApp();
 setGlobalOptions({
   region: 'us-central1',
   maxInstances: 10,
+  secrets: ['PLAID_CLIENT_ID', 'PLAID_SECRET'], // Declare secrets for v2 functions
 });
 
-// Get Plaid credentials from config (lazy-loaded)
+// Get Plaid credentials from environment variables (v2 functions use env vars, not config)
 const getPlaidConfig = () => {
   try {
-    const config = functions.config();
-    const clientId = config?.plaid?.client_id || process.env.PLAID_CLIENT_ID;
-    const secret = config?.plaid?.secret || process.env.PLAID_SECRET;
+    // For v2 functions, secrets are available as environment variables
+    // They're declared in setGlobalOptions above
+    const clientId = process.env.PLAID_CLIENT_ID;
+    const secret = process.env.PLAID_SECRET;
+    
+    console.log('🔵 [Function] Checking Plaid credentials...');
+    console.log('  - PLAID_CLIENT_ID:', clientId ? `Set (${clientId.substring(0, 8)}...)` : 'Missing');
+    console.log('  - PLAID_SECRET:', secret ? 'Set (***)' : 'Missing');
     
     if (!clientId || !secret) {
-      console.error('Plaid credentials not found in config');
-      throw new Error('Plaid credentials not configured');
+      console.error('❌ [Function] Plaid credentials not found in environment variables');
+      throw new Error('Plaid credentials not configured. Please set secrets: firebase functions:secrets:set PLAID_CLIENT_ID PLAID_SECRET');
     }
     
+    console.log('✅ [Function] Plaid credentials found');
     return { clientId, secret };
   } catch (error) {
-    console.error('Error getting Plaid config:', error);
+    console.error('❌ [Function] Error getting Plaid config:', error);
     throw error;
   }
 };
