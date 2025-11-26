@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalize merchant/description for matching\nconst description = $input.item.json.description || '';\nconst merchant = $input.item.json.merchant || '';\n\n// Normalize: uppercase, remove special chars\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizedMerchant = normalize(merchant);\nconst normalizedDescription = normalize(description);\nconst pattern = normalizedMerchant || normalizedDescription;\n\nreturn {\n  ...$input.item.json,\n  pattern: pattern,\n  normalized_merchant: normalizedMerchant,\n  normalized_description: normalizedDescription\n};"
+        "jsCode": "// Normalize merchant/description for matching\n// Handle webhook data - it may be in body or at root level\nconst webhookData = $input.item.json.body || $input.item.json;\nconst description = webhookData.description || '';\nconst merchant = webhookData.merchant || '';\nconst user_id = webhookData.user_id || '';\nconst type = webhookData.type || '';\nconst amount = webhookData.amount || 0;\nconst date = webhookData.date || '';\nconst transaction_id = webhookData.transaction_id || '';\n\n// Normalize: uppercase, remove special chars\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizedMerchant = normalize(merchant);\nconst normalizedDescription = normalize(description);\nconst pattern = normalizedMerchant || normalizedDescription;\n\n// Return all fields needed for downstream nodes\nreturn {\n  user_id: user_id,\n  description: description,\n  merchant: merchant,\n  type: type,\n  amount: amount,\n  date: date,\n  transaction_id: transaction_id,\n  pattern: pattern,\n  normalized_merchant: normalizedMerchant,\n  normalized_description: normalizedDescription\n};"
       },
       "id": "normalize-pattern",
       "name": "Normalize Pattern",
@@ -28,7 +28,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/checkCategoryMapping",
+        "url": "=https://us-central1-money-magnet-cf5a4.cloudfunctions.net/checkCategoryMappingHttp",
         "authentication": "none",
         "sendBody": true,
         "bodyContentType": "json",
@@ -52,7 +52,7 @@
           "conditions": [
             {
               "id": "mapping-found",
-              "leftValue": "={{ $json.mapping_found }}",
+              "leftValue": "={{ $json.result && $json.result.mapping_found || $json.mapping_found }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -77,13 +77,13 @@
             {
               "id": "category-id",
               "name": "category_id",
-              "value": "={{ $json.category_id }}",
+              "value": "={{ $json.result && $json.result.category_id || $json.category_id }}",
               "type": "string"
             },
             {
               "id": "category-name",
               "name": "category_name",
-              "value": "={{ $json.category_name }}",
+              "value": "={{ $json.result && $json.result.category_name || $json.category_name }}",
               "type": "string"
             },
             {
@@ -121,7 +121,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/getUserCategories",
+        "url": "=https://us-central1-money-magnet-cf5a4.cloudfunctions.net/getUserCategoriesHttp",
         "authentication": "none",
         "sendBody": true,
         "bodyContentType": "json",
@@ -136,7 +136,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const suggested = $input.item.json.suggested_category;\nconst userCategories = $input.item.json.categories || [];\n\nif (!suggested) {\n  return {\n    ...$input.item.json,\n    category_id: null,\n    category_name: null,\n    confidence: 0.5\n  };\n}\n\n// Find matching category\nconst match = userCategories.find(cat => {\n  const catName = cat.name.toLowerCase();\n  return catName.includes(suggested) || \n         suggested.includes(catName) ||\n         catName === suggested;\n});\n\nreturn {\n  ...$input.item.json,\n  category_id: match ? match.id : null,\n  category_name: match ? match.name : null,\n  confidence: match ? 0.8 : 0.5\n};"
+        "jsCode": "const suggested = $input.item.json.suggested_category;\n// Handle Firebase callable function response wrapper\nconst response = $input.item.json.result || $input.item.json;\nconst userCategories = response.categories || [];\n\nif (!suggested) {\n  return {\n    ...$input.item.json,\n    category_id: null,\n    category_name: null,\n    confidence: 0.5\n  };\n}\n\n// Find matching category\nconst match = userCategories.find(cat => {\n  const catName = cat.name.toLowerCase();\n  return catName.includes(suggested) || \n         suggested.includes(catName) ||\n         catName === suggested;\n});\n\nreturn {\n  ...$input.item.json,\n  category_id: match ? match.id : null,\n  category_name: match ? match.name : null,\n  confidence: match ? 0.8 : 0.5\n};"
       },
       "id": "match-category",
       "name": "Match Category",
