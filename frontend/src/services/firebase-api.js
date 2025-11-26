@@ -1075,7 +1075,8 @@ export default {
       const syncAccounts = httpsCallable(functions, 'syncPlaidAccounts')
       
       const result = await syncAccounts({ accessToken })
-      return result.data.accounts
+      // Return the full result object which includes accounts, accountsCount, transactionsCount
+      return result.data
     } catch (error) {
       console.error('Plaid sync accounts error:', error)
       throw new Error(`Failed to sync Plaid accounts: ${error.message || error.code || 'Unknown error'}`)

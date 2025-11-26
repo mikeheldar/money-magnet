@@ -293,6 +293,7 @@ exports.syncPlaidAccounts = onCall(async (request) => {
     // Create or update accounts in Firestore
     const batch = admin.firestore().batch();
     const createdAccounts = [];
+    const accountIdMap = {}; // Map Plaid account_id to Firestore account doc ID
 
     for (const account of accounts) {
       const plaidAccountId = account.account_id;
@@ -326,27 +327,192 @@ exports.syncPlaidAccounts = onCall(async (request) => {
         .limit(1)
         .get();
 
+      let accountRef;
       if (existingAccountQuery.empty) {
         // Create new account
-        const accountRef = admin.firestore().collection('accounts').doc();
+        accountRef = admin.firestore().collection('accounts').doc();
         batch.set(accountRef, accountData);
         createdAccounts.push({ id: accountRef.id, ...accountData });
       } else {
         // Update existing account
-        const accountRef = existingAccountQuery.docs[0].ref;
+        accountRef = existingAccountQuery.docs[0].ref;
         batch.update(accountRef, {
           ...accountData,
-          created_at: admin.firestore.FieldValue.serverTimestamp(), // Don't overwrite created_at
+          created_at: existingAccountQuery.docs[0].data().created_at, // Preserve original created_at
         });
         createdAccounts.push({ id: accountRef.id, ...accountData });
       }
+      
+      // Store mapping for transactions
+      accountIdMap[plaidAccountId] = accountRef.id;
     }
 
     await batch.commit();
+    console.log(`✅ [Function] Successfully created/updated ${createdAccounts.length} accounts.`);
+
+    // Fetch transactions from Plaid
+    console.log('🔵 [Function] Fetching transactions from Plaid...');
+    let transactions = [];
+    let transactionsCount = 0;
+    
+    try {
+      // Get transactions for the last 2 years (Plaid default is 30 days, but we can request more)
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 2);
+      const endDate = new Date();
+      
+      // Format dates as YYYY-MM-DD strings
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+      
+      console.log(`🔵 [Function] Requesting transactions from ${startDateStr} to ${endDateStr}`);
+      
+      // Plaid transactionsGet may return paginated results
+      let allTransactions = [];
+      let hasMore = true;
+      let cursor = null;
+      
+      while (hasMore) {
+        const requestParams = {
+          access_token: accessToken,
+          start_date: startDateStr,
+          end_date: endDateStr,
+        };
+        
+        if (cursor) {
+          requestParams.cursor = cursor;
+        }
+        
+        const transactionsResponse = await client.transactionsGet(requestParams);
+        const pageTransactions = transactionsResponse.data.transactions || [];
+        allTransactions = allTransactions.concat(pageTransactions);
+        
+        // Check if there are more pages
+        hasMore = transactionsResponse.data.has_more || false;
+        cursor = transactionsResponse.data.next_cursor || null;
+        
+        console.log(`🔵 [Function] Fetched ${pageTransactions.length} transactions (total: ${allTransactions.length}, has_more: ${hasMore})`);
+      }
+
+      transactions = allTransactions;
+      console.log(`✅ [Function] Found ${transactions.length} total transactions from Plaid.`);
+
+      // Get existing transactions to avoid duplicates
+      const existingTransactionsQuery = await admin.firestore()
+        .collection('transactions')
+        .where('user_id', '==', userId)
+        .where('external_id', '!=', null)
+        .get();
+      
+      const existingTransactionIds = new Set(
+        existingTransactionsQuery.docs.map(doc => doc.data().external_id)
+      );
+      console.log(`🔵 [Function] Found ${existingTransactionIds.size} existing transactions with external_id.`);
+
+      // Get default categories for mapping
+      const categoriesSnapshot = await admin.firestore()
+        .collection('categories')
+        .where('user_id', '==', userId)
+        .get();
+      
+      const categories = categoriesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      // Map Plaid transaction category to our category
+      const mapPlaidCategory = (plaidCategory) => {
+        if (!plaidCategory || !plaidCategory.length) return null;
+        
+        // Try to find matching category by name
+        const primaryCategory = plaidCategory[0];
+        const categoryName = primaryCategory.toLowerCase();
+        
+        // Simple mapping - can be enhanced
+        const categoryMap = {
+          'food and drink': 'Groceries',
+          'shops': 'Shopping',
+          'travel': 'Travel',
+          'gas stations': 'Transport',
+          'general merchandise': 'Shopping',
+          'entertainment': 'Entertainment',
+          'recreation': 'Entertainment',
+        };
+        
+        const mappedName = categoryMap[categoryName] || primaryCategory;
+        const category = categories.find(c => 
+          c.name.toLowerCase() === mappedName.toLowerCase()
+        );
+        
+        return category?.id || null;
+      };
+
+      // Batch write transactions
+      const transactionBatch = admin.firestore().batch();
+      let newTransactionsCount = 0;
+
+      for (const plaidTransaction of transactions) {
+        // Skip if transaction already exists
+        if (existingTransactionIds.has(plaidTransaction.transaction_id)) {
+          continue;
+        }
+
+        // Get Firestore account ID from mapping
+        const firestoreAccountId = accountIdMap[plaidTransaction.account_id];
+        if (!firestoreAccountId) {
+          console.warn(`⚠️ [Function] No account mapping found for Plaid account_id: ${plaidTransaction.account_id}`);
+          continue;
+        }
+
+        // Determine transaction type based on amount
+        // Plaid amounts: positive = debit (money out/expense), negative = credit (money in/income)
+        // For credit cards: positive = charge (expense), negative = payment (income)
+        // For bank accounts: positive = withdrawal (expense), negative = deposit (income)
+        const amount = Math.abs(plaidTransaction.amount);
+        const type = plaidTransaction.amount > 0 ? 'expense' : 'income';
+
+        // Map Plaid category
+        const categoryId = mapPlaidCategory(plaidTransaction.category);
+
+        const transactionData = {
+          user_id: userId,
+          account_id: firestoreAccountId,
+          category_id: categoryId,
+          type: type,
+          amount: amount,
+          description: plaidTransaction.name || plaidTransaction.merchant_name || 'Transaction',
+          merchant: plaidTransaction.merchant_name || null,
+          date: plaidTransaction.date, // Plaid date is already in YYYY-MM-DD format
+          posted_at: plaidTransaction.authorized_date ? 
+            admin.firestore.Timestamp.fromDate(new Date(plaidTransaction.authorized_date)) : null,
+          external_id: plaidTransaction.transaction_id, // Use Plaid transaction_id to prevent duplicates
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        const transactionRef = admin.firestore().collection('transactions').doc();
+        transactionBatch.set(transactionRef, transactionData);
+        newTransactionsCount++;
+      }
+
+      if (newTransactionsCount > 0) {
+        await transactionBatch.commit();
+        console.log(`✅ [Function] Successfully imported ${newTransactionsCount} new transactions.`);
+        transactionsCount = newTransactionsCount;
+      } else {
+        console.log('ℹ️ [Function] No new transactions to import (all already exist).');
+      }
+    } catch (error) {
+      console.error('❌ [Function] Error fetching/importing transactions:', error);
+      // Don't fail the whole sync if transactions fail - accounts are more important
+      console.warn('⚠️ [Function] Continuing without transactions...');
+    }
 
     return { 
       accounts: createdAccounts,
-      count: createdAccounts.length 
+      accountsCount: createdAccounts.length,
+      transactionsCount: transactionsCount,
+      totalTransactionsFound: transactions.length
     };
   } catch (error) {
     console.error('Error syncing accounts:', error);
