@@ -59,93 +59,103 @@
             <template v-slot:body="props">
               <!-- Add new row at top -->
               <template v-if="showAddRow && props.rowIndex === 0">
-                <q-tr key="add-row">
-                  <q-td colspan="7">
-                    <div class="row q-col-gutter-sm items-center q-pa-sm">
-                      <div class="col-2">
-                        <q-input
-                          v-model="newTransaction.date"
-                          label="Date"
-                          type="date"
-                          dense
-                          outlined
-                          :rules="[val => !!val || 'Required']"
-                        />
-                      </div>
-                      <div class="col-2">
-                        <q-input
-                          v-model="newTransaction.description"
-                          label="Description"
-                          dense
-                          outlined
-                        />
-                      </div>
-                      <div class="col-1">
-                        <q-select
-                          v-model="newTransaction.type"
-                          :options="['income', 'expense']"
-                          label="Type"
-                          dense
-                          outlined
-                          :rules="[val => !!val || 'Required']"
-                        />
-                      </div>
-                      <div class="col-1">
-                        <q-input
-                          v-model="newTransaction.amount"
-                          label="Amount"
-                          type="number"
-                          step="0.01"
-                          dense
-                          outlined
-                          :rules="[val => val > 0 || 'Required']"
-                        />
-                      </div>
-                      <div class="col-2">
-                        <q-select
-                          v-model="newTransaction.account_id"
-                          :options="accountOptions"
-                          option-label="name"
-                          option-value="id"
-                          label="Account"
-                          dense
-                          outlined
-                          clearable
-                          emit-value
-                          map-options
-                        />
-                      </div>
-                      <div class="col-2">
-                        <q-select
-                          v-model="newTransaction.category_id"
-                          :options="categoryOptions"
-                          option-label="name"
-                          option-value="id"
-                          label="Category"
-                          dense
-                          outlined
-                          clearable
-                          emit-value
-                          map-options
-                        />
-                      </div>
-                      <div class="col-2">
-                        <q-btn
-                          flat
-                          dense
-                          icon="check"
-                          color="positive"
-                          @click="onAddTransaction"
-                          :loading="adding"
-                        />
-                        <q-btn
-                          flat
-                          dense
-                          icon="close"
-                          color="negative"
-                          @click="cancelAdd"
-                        />
-                      </div>
+                <q-tr key="add-row" class="add-transaction-row">
+                  <q-td class="date-cell">
+                    <q-input
+                      v-model="newTransaction.date"
+                      type="date"
+                      dense
+                      outlined
+                      hide-bottom-space
+                      :rules="[val => !!val || 'Required']"
+                    />
+                  </q-td>
+                  <q-td class="merchant-cell">
+                    <q-input
+                      v-model="newTransaction.merchant"
+                      dense
+                      outlined
+                      hide-bottom-space
+                    />
+                  </q-td>
+                  <q-td class="description-cell">
+                    <q-input
+                      v-model="newTransaction.description"
+                      dense
+                      outlined
+                      hide-bottom-space
+                    />
+                  </q-td>
+                  <q-td class="type-cell">
+                    <q-select
+                      v-model="newTransaction.type"
+                      :options="['income', 'expense']"
+                      dense
+                      outlined
+                      hide-bottom-space
+                      :rules="[val => !!val || 'Required']"
+                    />
+                  </q-td>
+                  <q-td class="amount-cell">
+                    <q-input
+                      v-model="newTransaction.amount"
+                      type="number"
+                      step="0.01"
+                      dense
+                      outlined
+                      hide-bottom-space
+                      :rules="[val => val > 0 || 'Required']"
+                    />
+                  </q-td>
+                  <q-td class="account-cell">
+                    <q-select
+                      v-model="newTransaction.account_id"
+                      :options="accountOptions"
+                      option-label="name"
+                      option-value="id"
+                      dense
+                      outlined
+                      hide-bottom-space
+                      clearable
+                      emit-value
+                      map-options
+                    />
+                  </q-td>
+                  <q-td class="category-cell">
+                    <q-select
+                      v-model="newTransaction.category_id"
+                      :options="categoryOptions"
+                      option-label="name"
+                      option-value="id"
+                      dense
+                      outlined
+                      hide-bottom-space
+                      clearable
+                      emit-value
+                      map-options
+                    />
+                  </q-td>
+                  <q-td class="actions-cell">
+                    <div class="row items-center q-gutter-xs">
+                      <q-btn
+                        flat
+                        dense
+                        round
+                        icon="check"
+                        color="positive"
+                        size="sm"
+                        @click="onAddTransaction"
+                        :loading="adding"
+                      />
+                      <q-btn
+                        flat
+                        dense
+                        round
+                        icon="close"
+                        color="negative"
+                        size="sm"
+                        @click="cancelAdd"
+                      />
                     </div>
                   </q-td>
                 </q-tr>
@@ -163,6 +173,20 @@
                 </q-td>
                 <q-td v-else>
                   {{ formatDate(props.row.date) }}
+                </q-td>
+
+                <q-td v-if="editingId === props.row.id">
+                  <q-input
+                    v-model="editingTransaction.merchant"
+                    dense
+                    outlined
+                  />
+                </q-td>
+                <q-td v-else class="merchant-cell">
+                  <q-tooltip v-if="props.row.merchant && props.row.merchant.length > 20">
+                    {{ props.row.merchant }}
+                  </q-tooltip>
+                  <span class="text-ellipsis">{{ props.row.merchant || '-' }}</span>
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
@@ -331,6 +355,16 @@ export default defineComponent({
         classes: 'date-cell'
       },
       { 
+        name: 'merchant', 
+        label: 'Merchant', 
+        field: 'merchant', 
+        align: 'left', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 180px; min-width: 150px; max-width: 250px;',
+        classes: 'merchant-cell'
+      },
+      { 
         name: 'description', 
         label: 'Description', 
         field: 'description', 
@@ -397,6 +431,7 @@ export default defineComponent({
       date: new Date().toISOString().split('T')[0],
       type: 'expense',
       description: '',
+      merchant: '',
       category_id: null,
       account_id: null
     })
@@ -407,6 +442,7 @@ export default defineComponent({
       date: '',
       type: 'expense',
       description: '',
+      merchant: '',
       category_id: null,
       account_id: null
     })
@@ -443,6 +479,7 @@ export default defineComponent({
         filtered = filtered.filter(t => {
           return (
             (t.description || '').toLowerCase().includes(searchTerm) ||
+            (t.merchant || '').toLowerCase().includes(searchTerm) ||
             (t.type || '').toLowerCase().includes(searchTerm) ||
             (t.account_name || '').toLowerCase().includes(searchTerm) ||
             (t.category_name || '').toLowerCase().includes(searchTerm) ||
@@ -511,6 +548,7 @@ export default defineComponent({
         date: new Date().toISOString().split('T')[0],
         type: 'expense',
         description: '',
+        merchant: '',
         category_id: null,
         account_id: null
       }
@@ -581,6 +619,7 @@ export default defineComponent({
         date: transaction.date,
         type: transaction.type,
         description: transaction.description || '',
+        merchant: transaction.merchant || '',
         category_id: transaction.category_id || null,
         account_id: transaction.account_id || null
       }
@@ -594,6 +633,7 @@ export default defineComponent({
         date: '',
         type: 'expense',
         description: '',
+        merchant: '',
         category_id: null,
         account_id: null
       }
@@ -706,6 +746,24 @@ export default defineComponent({
   font-size: 14px;
 }
 
+/* Add transaction row styling */
+.add-transaction-row {
+  background-color: #f9f9f9;
+}
+
+.add-transaction-row :deep(.q-field) {
+  margin-bottom: 0;
+}
+
+.add-transaction-row :deep(.q-field__control) {
+  min-height: 32px;
+}
+
+.add-transaction-row :deep(.q-input),
+.add-transaction-row :deep(.q-select) {
+  font-size: 13px;
+}
+
 /* Prominent headers */
 .transactions-table :deep(thead th) {
   font-size: 13px;
@@ -729,6 +787,21 @@ export default defineComponent({
 }
 
 .transactions-table :deep(.description-cell .text-ellipsis) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.transactions-table :deep(.merchant-cell) {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transactions-table :deep(.merchant-cell .text-ellipsis) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
