@@ -158,7 +158,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"category_id\": $json.category_id,\n  \"category_name\": $json.category_name,\n  \"confidence\": $json.confidence,\n  \"source\": $json.source || 'ai'\n}"
+        "responseBody": "={{ JSON.stringify({\n  category_id: $json.category_id || null,\n  category_name: $json.category_name || null,\n  confidence: $json.confidence || 0.8,\n  source: $json.source || 'ai'\n}) }}"
       },
       "id": "respond-webhook",
       "name": "Respond to Webhook",
