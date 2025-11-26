@@ -1,0 +1,77 @@
+{
+  "name": "Learn Category",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "learn-category",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-learn",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "learn-category"
+    },
+    {
+      "parameters": {
+        "jsCode": "const merchant = $input.item.json.merchant || '';\nconst description = $input.item.json.description || '';\n\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst pattern = normalize(merchant) || normalize(description);\n\nreturn {\n  ...$input.item.json,\n  pattern: pattern,\n  match_type: merchant ? 'merchant' : 'description'\n};"
+      },
+      "id": "normalize-learn",
+      "name": "Normalize Pattern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/saveCategoryMapping",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"pattern\": $json.pattern,\n    \"category_id\": $json.new_category_id,\n    \"transaction_type\": $json.transaction_type,\n    \"match_type\": $json.match_type,\n    \"confidence\": 1.0\n  }\n}",
+        "options": {}
+      },
+      "id": "save-mapping",
+      "name": "Save Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Category mapping saved\"\n}"
+      },
+      "id": "respond-learn",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Normalize Pattern", "type": "main", "index": 0}]]
+    },
+    "Normalize Pattern": {
+      "main": [[{"node": "Save Mapping", "type": "main", "index": 0}]]
+    },
+    "Save Mapping": {
+      "main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}
+

@@ -1,0 +1,212 @@
+{
+  "name": "Categorize Transaction",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "categorize-transaction",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-categorize",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "categorize-transaction"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize merchant/description for matching\nconst description = $input.item.json.description || '';\nconst merchant = $input.item.json.merchant || '';\n\n// Normalize: uppercase, remove special chars\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizedMerchant = normalize(merchant);\nconst normalizedDescription = normalize(description);\nconst pattern = normalizedMerchant || normalizedDescription;\n\nreturn {\n  ...$input.item.json,\n  pattern: pattern,\n  normalized_merchant: normalizedMerchant,\n  normalized_description: normalizedDescription\n};"
+      },
+      "id": "normalize-pattern",
+      "name": "Normalize Pattern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/checkCategoryMapping",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"pattern\": $json.pattern,\n    \"transaction_type\": $json.type\n  }\n}",
+        "options": {}
+      },
+      "id": "check-mapping",
+      "name": "Check Learned Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "mapping-found",
+              "leftValue": "={{ $json.mapping_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-mapping",
+      "name": "Mapping Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "category-id",
+              "name": "category_id",
+              "value": "={{ $json.category_id }}",
+              "type": "string"
+            },
+            {
+              "id": "category-name",
+              "name": "category_name",
+              "value": "={{ $json.category_name }}",
+              "type": "string"
+            },
+            {
+              "id": "confidence",
+              "name": "confidence",
+              "value": 1.0,
+              "type": "number"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "learned",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "use-learned",
+      "name": "Use Learned Category",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple keyword-based categorization\nconst description = $input.item.json.description || '';\nconst merchant = $input.item.json.merchant || '';\nconst text = (merchant + ' ' + description).toLowerCase();\n\n// Category keyword mapping\nconst categories = {\n  'groceries': ['walmart', 'target', 'kroger', 'safeway', 'whole foods', 'grocery', 'supermarket'],\n  'restaurants': ['restaurant', 'mcdonald', 'burger', 'pizza', 'subway', 'chipotle', 'taco', 'dining'],\n  'coffee': ['starbucks', 'dunkin', 'coffee', 'cafe', 'espresso'],\n  'gas': ['shell', 'exxon', 'chevron', 'gas station', 'bp', 'mobil', 'fuel'],\n  'utilities': ['electric', 'water', 'gas company', 'utility', 'power', 'energy'],\n  'rent': ['rent', 'apartment', 'housing', 'lease'],\n  'transportation': ['uber', 'lyft', 'taxi', 'metro', 'transit', 'bus', 'train'],\n  'shopping': ['amazon', 'ebay', 'store', 'retail', 'shop'],\n  'entertainment': ['netflix', 'spotify', 'movie', 'theater', 'concert'],\n  'healthcare': ['pharmacy', 'cvs', 'walgreens', 'doctor', 'hospital', 'medical'],\n  'subscriptions': ['subscription', 'membership', 'monthly'],\n};\n\nlet suggestedCategory = null;\nlet confidence = 0.6;\n\nfor (const [cat, keywords] of Object.entries(categories)) {\n  if (keywords.some(keyword => text.includes(keyword))) {\n    suggestedCategory = cat;\n    confidence = 0.8;\n    break;\n  }\n}\n\nreturn {\n  ...$input.item.json,\n  suggested_category: suggestedCategory,\n  confidence: confidence,\n  source: \"ai\"\n};"
+      },
+      "id": "ai-categorize",
+      "name": "AI Categorization",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://money-magnet-cf5a4.cloudfunctions.net/getUserCategories",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"user_id\": $json.user_id,\n    \"type\": $json.type\n  }\n}",
+        "options": {}
+      },
+      "id": "get-categories",
+      "name": "Get User Categories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const suggested = $input.item.json.suggested_category;\nconst userCategories = $input.item.json.categories || [];\n\nif (!suggested) {\n  return {\n    ...$input.item.json,\n    category_id: null,\n    category_name: null,\n    confidence: 0.5\n  };\n}\n\n// Find matching category\nconst match = userCategories.find(cat => {\n  const catName = cat.name.toLowerCase();\n  return catName.includes(suggested) || \n         suggested.includes(catName) ||\n         catName === suggested;\n});\n\nreturn {\n  ...$input.item.json,\n  category_id: match ? match.id : null,\n  category_name: match ? match.name : null,\n  confidence: match ? 0.8 : 0.5\n};"
+      },
+      "id": "match-category",
+      "name": "Match Category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "mode": "mergeByIndex",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"category_id\": $json.category_id,\n  \"category_name\": $json.category_name,\n  \"confidence\": $json.confidence,\n  \"source\": $json.source || 'ai'\n}"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Normalize Pattern", "type": "main", "index": 0}]]
+    },
+    "Normalize Pattern": {
+      "main": [[{"node": "Check Learned Mapping", "type": "main", "index": 0}]]
+    },
+    "Check Learned Mapping": {
+      "main": [[{"node": "Mapping Found?", "type": "main", "index": 0}]]
+    },
+    "Mapping Found?": {
+      "main": [
+        [{"node": "Use Learned Category", "type": "main", "index": 0}],
+        [{"node": "AI Categorization", "type": "main", "index": 0}]
+      ]
+    },
+    "Use Learned Category": {
+      "main": [[{"node": "Merge Results", "type": "main", "index": 0}]]
+    },
+    "AI Categorization": {
+      "main": [[{"node": "Get User Categories", "type": "main", "index": 0}]]
+    },
+    "Get User Categories": {
+      "main": [[{"node": "Match Category", "type": "main", "index": 0}]]
+    },
+    "Match Category": {
+      "main": [[{"node": "Merge Results", "type": "main", "index": 0}]]
+    },
+    "Merge Results": {
+      "main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}
+
