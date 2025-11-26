@@ -977,31 +977,71 @@ export default {
   // Plaid Integration
   async createPlaidLinkToken() {
     try {
+      console.log('🔵 [Plaid] Starting createPlaidLinkToken...')
       const userId = auth.currentUser?.uid
-      if (!userId) throw new Error('Not authenticated')
+      console.log('🔵 [Plaid] User ID:', userId)
+      
+      if (!userId) {
+        console.error('❌ [Plaid] Not authenticated')
+        throw new Error('Not authenticated')
+      }
 
       // Use Firebase Functions callable
+      console.log('🔵 [Plaid] Importing Firebase Functions...')
       const { httpsCallable } = await import('firebase/functions')
       const { functions } = await import('../config/firebase')
+      console.log('🔵 [Plaid] Functions instance:', functions)
+      
+      console.log('🔵 [Plaid] Creating callable function reference...')
       const createLinkToken = httpsCallable(functions, 'createPlaidLinkToken')
       
+      console.log('🔵 [Plaid] Calling createPlaidLinkToken function...')
       const result = await createLinkToken()
+      console.log('✅ [Plaid] Function call successful, result:', result)
+      console.log('✅ [Plaid] Link token received:', result.data?.link_token ? 'Yes' : 'No')
+      
+      if (!result.data?.link_token) {
+        console.error('❌ [Plaid] No link_token in response:', result)
+        throw new Error('No link token in response')
+      }
+      
       return result.data.link_token
     } catch (error) {
-      console.error('Plaid link token error:', error)
-      console.error('Error code:', error.code)
-      console.error('Error details:', error.details)
+      console.error('❌ [Plaid] Error creating link token:')
+      console.error('  - Error object:', error)
+      console.error('  - Error type:', typeof error)
+      console.error('  - Error constructor:', error.constructor?.name)
+      console.error('  - Error code:', error.code)
+      console.error('  - Error message:', error.message)
+      console.error('  - Error details:', error.details)
+      console.error('  - Error stack:', error.stack)
+      
+      // Check if it's a Firebase Functions error
+      if (error.code) {
+        console.error('  - Firebase error code:', error.code)
+        console.error('  - Firebase error message:', error.message)
+        if (error.details) {
+          console.error('  - Firebase error details:', JSON.stringify(error.details, null, 2))
+        }
+      }
       
       // Extract more detailed error message
       let errorMessage = 'Unknown error'
       if (error.details) {
-        errorMessage = error.details.message || error.details
+        if (typeof error.details === 'string') {
+          errorMessage = error.details
+        } else if (error.details.message) {
+          errorMessage = error.details.message
+        } else {
+          errorMessage = JSON.stringify(error.details)
+        }
       } else if (error.message) {
         errorMessage = error.message
       } else if (error.code) {
         errorMessage = `Error code: ${error.code}`
       }
       
+      console.error('❌ [Plaid] Final error message:', errorMessage)
       throw new Error(`Failed to create Plaid link token: ${errorMessage}`)
     }
   },

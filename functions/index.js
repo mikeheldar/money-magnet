@@ -59,16 +59,31 @@ const getPlaidClient = () => {
 
 // Create Plaid Link Token
 exports.createPlaidLinkToken = onCall(async (request) => {
+  console.log('🔵 [Function] createPlaidLinkToken called');
+  console.log('🔵 [Function] Request data:', JSON.stringify(request.data || {}, null, 2));
+  console.log('🔵 [Function] Request auth:', request.auth ? 'Present' : 'Missing');
+  
   // Verify authentication
   if (!request.auth) {
+    console.error('❌ [Function] No authentication');
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
 
   const userId = request.auth.uid;
-  const client = getPlaidClient();
+  console.log('🔵 [Function] User ID:', userId);
+  
+  console.log('🔵 [Function] Getting Plaid client...');
+  let client;
+  try {
+    client = getPlaidClient();
+    console.log('✅ [Function] Plaid client obtained');
+  } catch (error) {
+    console.error('❌ [Function] Failed to get Plaid client:', error);
+    throw new functions.https.HttpsError('failed-precondition', 'Plaid client not initialized. Please check configuration.', error);
+  }
 
   try {
-    const request = {
+    const plaidRequest = {
       user: {
         client_user_id: userId,
       },
@@ -78,17 +93,37 @@ exports.createPlaidLinkToken = onCall(async (request) => {
       language: 'en',
     };
 
-    console.log('Creating Plaid link token for user:', userId);
-    const response = await client.linkTokenCreate(request);
-    console.log('Link token created successfully');
+    console.log('🔵 [Function] Creating Plaid link token request:', JSON.stringify(plaidRequest, null, 2));
+    console.log('🔵 [Function] Calling Plaid API...');
+    const response = await client.linkTokenCreate(plaidRequest);
+    console.log('✅ [Function] Plaid API response received');
+    console.log('✅ [Function] Response status:', response.status);
+    console.log('✅ [Function] Link token present:', !!response.data?.link_token);
+    
+    if (!response.data?.link_token) {
+      console.error('❌ [Function] No link_token in Plaid response:', JSON.stringify(response.data, null, 2));
+      throw new Error('No link_token in Plaid response');
+    }
+    
+    console.log('✅ [Function] Link token created successfully');
     return { link_token: response.data.link_token };
   } catch (error) {
-    console.error('Error creating link token:', error);
-    console.error('Error details:', JSON.stringify(error.response?.data || error.message, null, 2));
+    console.error('❌ [Function] Error creating link token:');
+    console.error('  - Error type:', error.constructor?.name);
+    console.error('  - Error message:', error.message);
+    console.error('  - Error stack:', error.stack);
     
-    // Provide more specific error messages
+    if (error.response) {
+      console.error('  - Response status:', error.response.status);
+      console.error('  - Response data:', JSON.stringify(error.response.data, null, 2));
+    }
+    
     if (error.response?.data) {
       const plaidError = error.response.data;
+      console.error('  - Plaid error code:', plaidError.error_code);
+      console.error('  - Plaid error message:', plaidError.error_message);
+      console.error('  - Plaid error type:', plaidError.error_type);
+      
       throw new functions.https.HttpsError(
         'internal',
         `Plaid error: ${plaidError.error_message || plaidError.error_code || 'Unknown error'}`,
@@ -96,6 +131,7 @@ exports.createPlaidLinkToken = onCall(async (request) => {
       );
     }
     
+    console.error('  - Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
     throw new functions.https.HttpsError('internal', `Failed to create link token: ${error.message}`, error);
   }
 });

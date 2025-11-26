@@ -595,21 +595,32 @@ export default defineComponent({
     }
 
     const connectWithPlaid = async () => {
+      console.log('🟢 [Accounts] connectWithPlaid called')
       plaidLoading.value = true
       try {
+        console.log('🟢 [Accounts] Creating Plaid link token...')
         // Create link token
         const linkToken = await firebaseApi.createPlaidLinkToken()
+        console.log('✅ [Accounts] Link token received, length:', linkToken?.length)
         
+        console.log('🟢 [Accounts] Initializing Plaid Link service...')
         // Initialize Plaid Link
         await plaidService.initialize(
           linkToken,
           async (publicToken, metadata) => {
+            console.log('🟢 [Accounts] Plaid Link success callback')
+            console.log('  - Public token received:', publicToken ? 'Yes' : 'No')
+            console.log('  - Metadata:', metadata)
             try {
+              console.log('🟢 [Accounts] Exchanging public token...')
               // Exchange public token for access token
               const result = await firebaseApi.exchangePlaidPublicToken(publicToken)
+              console.log('✅ [Accounts] Token exchanged successfully')
               
+              console.log('🟢 [Accounts] Syncing accounts from Plaid...')
               // Sync accounts from Plaid
               const accounts = await firebaseApi.syncPlaidAccounts(result.access_token)
+              console.log('✅ [Accounts] Accounts synced:', accounts.length)
               
               $q.notify({
                 type: 'positive',
@@ -619,7 +630,8 @@ export default defineComponent({
               // Reload accounts
               await loadAccounts()
             } catch (err) {
-              console.error('Error syncing Plaid accounts:', err)
+              console.error('❌ [Accounts] Error syncing Plaid accounts:', err)
+              console.error('  - Error details:', JSON.stringify(err, null, 2))
               $q.notify({
                 type: 'negative',
                 message: err.message || 'Failed to sync accounts from Plaid'
@@ -627,8 +639,14 @@ export default defineComponent({
             }
           },
           (err, metadata) => {
+            console.log('🟡 [Accounts] Plaid Link exit callback')
+            console.log('  - Error:', err)
+            console.log('  - Metadata:', metadata)
             if (err) {
-              console.error('Plaid Link error:', err)
+              console.error('❌ [Accounts] Plaid Link error:', err)
+              console.error('  - Error message:', err.error_message)
+              console.error('  - Error type:', err.error_type)
+              console.error('  - Error code:', err.error_code)
               $q.notify({
                 type: 'negative',
                 message: err.error_message || 'Failed to connect with Plaid'
@@ -637,16 +655,21 @@ export default defineComponent({
           }
         )
         
+        console.log('🟢 [Accounts] Opening Plaid Link...')
         // Open Plaid Link
         plaidService.open()
       } catch (err) {
-        console.error('Error connecting with Plaid:', err)
+        console.error('❌ [Accounts] Error connecting with Plaid:')
+        console.error('  - Error:', err)
+        console.error('  - Error message:', err.message)
+        console.error('  - Error stack:', err.stack)
         $q.notify({
           type: 'negative',
           message: err.message || 'Failed to initialize Plaid connection'
         })
       } finally {
         plaidLoading.value = false
+        console.log('🟢 [Accounts] connectWithPlaid completed')
       }
     }
 
