@@ -118,7 +118,7 @@
                       <div class="col-2">
                         <q-select
                           v-model="newTransaction.category_id"
-                          :options="categories.value.filter(c => c.type === newTransaction.type && !c.parent_id)"
+                          :options="categoryOptions"
                           option-label="name"
                           option-value="id"
                           label="Category"
@@ -227,7 +227,7 @@
                 <q-td v-if="editingId === props.row.id">
                   <q-select
                     v-model="editingTransaction.category_id"
-                    :options="categories.value.filter(c => c.type === editingTransaction.type && !c.parent_id)"
+                    :options="categoryOptions"
                     option-label="name"
                     option-value="id"
                     dense
