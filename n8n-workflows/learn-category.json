@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const merchant = $input.item.json.merchant || '';\nconst description = $input.item.json.description || '';\n\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst pattern = normalize(merchant) || normalize(description);\n\nreturn {\n  ...$input.item.json,\n  pattern: pattern,\n  match_type: merchant ? 'merchant' : 'description'\n};"
+        "jsCode": "// Handle webhook data - it may be in body or at root level\nconst webhookData = $input.item.json.body || $input.item.json;\nconst merchant = webhookData.merchant || '';\nconst description = webhookData.description || '';\nconst user_id = webhookData.user_id || '';\nconst new_category_id = webhookData.new_category_id || '';\nconst transaction_type = webhookData.transaction_type || '';\nconst old_category_id = webhookData.old_category_id || '';\nconst transaction_id = webhookData.transaction_id || '';\n\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst pattern = normalize(merchant) || normalize(description);\n\n// Return all fields needed for downstream nodes\nreturn {\n  user_id: user_id,\n  merchant: merchant,\n  description: description,\n  new_category_id: new_category_id,\n  transaction_type: transaction_type,\n  old_category_id: old_category_id,\n  transaction_id: transaction_id,\n  pattern: pattern,\n  match_type: merchant ? 'merchant' : 'description'\n};"
       },
       "id": "normalize-learn",
       "name": "Normalize Pattern",
@@ -44,7 +44,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Category mapping saved\"\n}"
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  message: 'Category mapping saved'\n}) }}"
       },
       "id": "respond-learn",
       "name": "Respond to Webhook",
