@@ -544,50 +544,39 @@ export default defineComponent({
 
       // Show dialog to ask about learning the rule
       if (hasMerchant) {
-        // First dialog: Ask if we should learn this rule
-        const shouldLearn = await new Promise((resolve) => {
+        const result = await new Promise((resolve) => {
           $q.dialog({
             title: 'Learn This Category Rule?',
             message: `Should future transactions from "${transaction.merchant}" automatically be categorized as "${categoryName}"?`,
             cancel: true,
             persistent: true,
             ok: {
-              label: 'Yes, Learn This Rule',
+              label: 'Learn Rule',
               color: 'primary'
             },
             cancel: {
               label: 'Just This Transaction',
               flat: true
+            },
+            prompt: {
+              model: [],
+              type: 'checkbox',
+              items: [
+                { label: 'Update all historical transactions for this merchant', value: 'updateHistorical' }
+              ]
             }
-          }).onOk(() => resolve(true)).onCancel(() => resolve(false))
-        })
-
-        let shouldUpdateHistorical = false
-
-        if (shouldLearn) {
-          // Second dialog: Ask if we should update historical transactions
-          shouldUpdateHistorical = await new Promise((resolve) => {
-            $q.dialog({
-              title: 'Update Historical Transactions?',
-              message: `Do you want to update all past transactions from "${transaction.merchant}" to use this category?`,
-              cancel: true,
-              persistent: true,
-              ok: {
-                label: 'Yes, Update All',
-                color: 'primary'
-              },
-              cancel: {
-                label: 'No, Just Future',
-                flat: true
-              }
-            }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+          }).onOk((data) => {
+            resolve({
+              learn: true,
+              updateHistorical: Array.isArray(data) && data.includes('updateHistorical')
+            })
+          }).onCancel(() => {
+            resolve({
+              learn: false,
+              updateHistorical: false
+            })
           })
-        }
-
-        const result = {
-          learn: shouldLearn,
-          updateHistorical: shouldUpdateHistorical
-        }
+        })
 
         if (result.learn) {
           // Learn the rule and optionally update historical transactions
