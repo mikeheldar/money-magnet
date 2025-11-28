@@ -1217,8 +1217,11 @@ export default defineComponent({
                 })
               }
               await onTableDragEnd()
-              // Reinitialize drag and drop after move to fix collapse/expand
+              // Force Vue to re-render by reloading categories
+              // This ensures category rows are properly associated with moved groups
+              await loadCategories()
               await nextTick()
+              // Reinitialize drag and drop after move to fix collapse/expand
               initDragAndDrop()
             }
           }
