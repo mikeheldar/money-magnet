@@ -44,9 +44,6 @@
                           <q-item-section avatar>
                             <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
                           </q-item-section>
-                          <q-item-section>
-                            <q-item-label>{{ scope.opt.label }}</q-item-label>
-                          </q-item-section>
                         </q-item>
                       </template>
                       <template v-slot:selected>
@@ -55,7 +52,6 @@
                           :name="editingCategory.icon" 
                           :style="{ color: getIconColor(editingCategory.icon, 'group') }"
                           size="20px"
-                          class="q-mr-xs"
                         />
                         <span v-else>Select Icon</span>
                       </template>
@@ -309,10 +305,7 @@
                             <template v-slot:option="scope">
                               <q-item v-bind="scope.itemProps">
                                 <q-item-section avatar>
-                                  <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="20px" />
-                                </q-item-section>
-                                <q-item-section>
-                                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                                  <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
                                 </q-item-section>
                               </q-item>
                             </template>
@@ -321,9 +314,9 @@
                                 v-if="editingCategoryItem.icon" 
                                 :name="editingCategoryItem.icon" 
                                 :style="{ color: getIconColor(editingCategoryItem.icon, 'category') }"
-                                size="16px"
-                                class="q-mr-xs"
+                                size="20px"
                               />
+                              <span v-else>Select Icon</span>
                             </template>
                           </q-select>
                           <q-input
@@ -414,9 +407,6 @@
                               <q-item-section avatar>
                                 <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
                               </q-item-section>
-                              <q-item-section>
-                                <q-item-label>{{ scope.opt.label }}</q-item-label>
-                              </q-item-section>
                             </q-item>
                           </template>
                           <template v-slot:selected>
@@ -425,7 +415,6 @@
                               :name="newCategoryItem.icon" 
                               :style="{ color: getIconColor(newCategoryItem.icon, 'category') }"
                               size="20px"
-                              class="q-mr-xs"
                             />
                             <span v-else>Select Icon</span>
                           </template>
