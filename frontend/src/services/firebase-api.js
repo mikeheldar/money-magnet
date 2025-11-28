@@ -1308,6 +1308,74 @@ export default {
     }
   },
 
+  // Admin: Get all transactions (for recategorization)
+  async getAllTransactions() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const q = query(
+        collection(db, 'transactions'),
+        where('user_id', '==', userId)
+      )
+
+      const snapshot = await getDocs(q)
+      const transactions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+
+      return transactions
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getAllTransactions')
+      throw new Error(`Failed to get all transactions: ${errorMsg}`)
+    }
+  },
+
+  // Admin: Clear categories from all transactions
+  async clearAllCategories() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { writeBatch, doc, serverTimestamp, FieldValue } = await import('firebase/firestore')
+      
+      const transactions = await this.getAllTransactions()
+      
+      if (transactions.length === 0) {
+        return { success: true, clearedCount: 0 }
+      }
+
+      // Process in batches of 500 (Firestore limit)
+      const batchSize = 500
+      let clearedCount = 0
+
+      for (let i = 0; i < transactions.length; i += batchSize) {
+        const batch = writeBatch(db)
+        const batchTransactions = transactions.slice(i, i + batchSize)
+
+        batchTransactions.forEach(transaction => {
+          const transactionRef = doc(db, 'transactions', transaction.id)
+          batch.update(transactionRef, {
+            category_id: FieldValue.delete(),
+            category_source: FieldValue.delete(),
+            category_suggested: FieldValue.delete(),
+            category_confidence: FieldValue.delete(),
+            updated_at: serverTimestamp()
+          })
+        })
+
+        await batch.commit()
+        clearedCount += batchTransactions.length
+      }
+
+      return { success: true, clearedCount }
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'clearAllCategories')
+      throw new Error(`Failed to clear categories: ${errorMsg}`)
+    }
+  },
+
   // Update all transactions for a merchant pattern and save mapping
   async updateTransactionsForMerchant({ user_id, merchant, category_id, transaction_type }) {
     try {

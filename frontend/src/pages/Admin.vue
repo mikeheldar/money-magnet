@@ -9,6 +9,24 @@
           </q-card-section>
 
           <q-card-section>
+            <!-- Clear and Relearn Categories Section -->
+            <q-card flat bordered class="q-mb-md" style="border-left: 4px solid #f44336;">
+              <q-card-section>
+                <div class="text-h6 q-mb-sm">Clear & Relearn All Categories</div>
+                <div class="text-body2 text-grey-7 q-mb-md">
+                  Clear all category assignments from all transactions and recategorize them using AI. This will remove all learned mappings and force a fresh categorization.
+                </div>
+                <q-btn
+                  color="negative"
+                  label="Clear Categories & Relearn All"
+                  icon="refresh"
+                  @click="clearAndRelearnAll"
+                  :loading="clearingAndRelearning"
+                  :disable="clearingAndRelearning"
+                />
+              </q-card-section>
+            </q-card>
+
             <!-- Batch Categorization Section -->
             <q-card flat bordered class="q-mb-md">
               <q-card-section>
@@ -116,6 +134,7 @@ export default {
     const $q = useQuasar()
     const loading = ref(false)
     const categorizing = ref(false)
+    const clearingAndRelearning = ref(false)
     const uncategorizedTransactions = ref([])
     const uncategorizedCount = ref(null)
     const results = ref([])
@@ -158,6 +177,137 @@ export default {
         })
       } finally {
         loading.value = false
+      }
+    }
+
+    const clearAndRelearnAll = async () => {
+      const confirmed = await $q.dialog({
+        title: 'Confirm Clear & Relearn',
+        message: 'This will clear all category assignments from ALL transactions and recategorize them. This action cannot be undone. Continue?',
+        cancel: true,
+        persistent: true,
+        ok: {
+          color: 'negative',
+          label: 'Yes, Clear & Relearn'
+        }
+      })
+
+      if (!confirmed) {
+        return
+      }
+
+      clearingAndRelearning.value = true
+      results.value = []
+
+      try {
+        // Step 1: Clear all categories
+        $q.notify({
+          type: 'info',
+          message: 'Clearing all categories...',
+          position: 'top'
+        })
+
+        const clearResult = await firebaseApi.clearAllCategories()
+        
+        $q.notify({
+          type: 'positive',
+          message: `Cleared categories from ${clearResult.clearedCount} transactions`,
+          position: 'top'
+        })
+
+        // Step 2: Get all transactions (now uncategorized)
+        $q.notify({
+          type: 'info',
+          message: 'Loading all transactions for recategorization...',
+          position: 'top'
+        })
+
+        const allTransactions = await firebaseApi.getAllTransactions()
+        
+        if (allTransactions.length === 0) {
+          $q.notify({
+            type: 'warning',
+            message: 'No transactions found to recategorize',
+            position: 'top'
+          })
+          clearingAndRelearning.value = false
+          return
+        }
+
+        // Step 3: Categorize all transactions
+        $q.notify({
+          type: 'info',
+          message: `Recategorizing ${allTransactions.length} transactions...`,
+          position: 'top'
+        })
+
+        const response = await firebaseApi.categorizeTransactionsBatch(allTransactions)
+        
+        // Process results
+        if (response.results && Array.isArray(response.results)) {
+          results.value = response.results.map(result => ({
+            ...result,
+            status: result.category_id ? 'success' : 'no_match'
+          }))
+
+          // Update transactions in Firestore
+          const { updateDoc, doc } = await import('firebase/firestore')
+          const { db } = await import('../config/firebase')
+          
+          let successCount = 0
+          let errorCount = 0
+
+          for (const result of response.results) {
+            if (result.category_id && result.transaction_id) {
+              try {
+                const updateData = {
+                  category_id: result.category_id,
+                  updated_at: new Date().toISOString()
+                }
+                
+                // Set category_source if AI categorized
+                if (result.category_source === 'ai') {
+                  updateData.category_source = 'ai'
+                  updateData.category_suggested = true
+                  updateData.category_confidence = result.confidence || 0.8
+                } else if (result.source === 'ai') {
+                  // Fallback to source field
+                  updateData.category_source = 'ai'
+                  updateData.category_suggested = true
+                  updateData.category_confidence = result.confidence || 0.8
+                }
+                
+                await updateDoc(doc(db, 'transactions', result.transaction_id), updateData)
+                successCount++
+              } catch (error) {
+                console.error(`Failed to update transaction ${result.transaction_id}:`, error)
+                errorCount++
+              }
+            }
+          }
+
+          $q.notify({
+            type: successCount > 0 ? 'positive' : 'warning',
+            message: `Recategorization complete! ${successCount} transactions updated, ${errorCount} errors`,
+            position: 'top',
+            timeout: 5000
+          })
+
+          // Reload uncategorized transactions
+          await loadUncategorized()
+        } else {
+          throw new Error('Invalid response format from N8N')
+        }
+      } catch (error) {
+        console.error('Error clearing and relearning categories:', error)
+        $q.notify({
+          type: 'negative',
+          message: `Failed to clear and relearn categories: ${error.message}`,
+          position: 'top',
+          timeout: 5000
+        })
+      } finally {
+        clearingAndRelearning.value = false
       }
     }
 
@@ -252,13 +402,15 @@ export default {
     return {
       loading,
       categorizing,
+      clearingAndRelearning,
       uncategorizedTransactions,
       uncategorizedCount,
       results,
       previewColumns,
       resultColumns,
       loadUncategorized,
-      categorizeBatch
+      categorizeBatch,
+      clearAndRelearnAll
     }
   }
 }
