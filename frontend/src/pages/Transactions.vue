@@ -261,7 +261,7 @@
                     map-options
                   />
                 </q-td>
-                <q-td v-else class="category-cell">
+                <q-td v-else class="category-cell" style="cursor: pointer;" @click="startEdit(props.row)">
                   <div class="row items-center no-wrap">
                     <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
                     <q-icon 
@@ -272,6 +272,14 @@
                       class="q-ml-xs"
                     >
                       <q-tooltip>Auto-categorized by AI</q-tooltip>
+                    </q-icon>
+                    <q-icon 
+                      name="edit" 
+                      color="grey-6"
+                      size="14px"
+                      class="q-ml-xs"
+                    >
+                      <q-tooltip>Click to edit category</q-tooltip>
                     </q-icon>
                   </div>
                   <q-tooltip v-if="props.row.category_name && props.row.category_name.length > 15">
