@@ -19,7 +19,8 @@
     "quasar": "^2.14.0",
     "vue": "^3.4.0",
     "vue-chartjs": "^5.3.3",
-    "vue-router": "^4.2.5"
+    "vue-router": "^4.2.5",
+    "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
     "@quasar/app-vite": "^1.4.0",

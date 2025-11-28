@@ -5,36 +5,121 @@
         <q-card-section>
           <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Budget Categories</div>
           
-          <q-table
-            :rows="displayRows"
-            :columns="columns"
-            row-key="id"
-            flat
-            bordered
-            :loading="loading"
-            :pagination="{ rowsPerPage: 0 }"
-            class="budget-categories-table"
-          >
-            <template v-slot:top>
-              <div class="row items-center q-gutter-sm">
-                <q-btn
-                  color="primary"
-                  icon="add"
-                  label="Add Category Group"
-                  @click="showAddCategory = true"
-                  size="sm"
-                />
-                <q-btn
-                  color="accent"
-                  icon="auto_awesome"
-                  label="Seed Categories with Icons"
-                  @click="seedCategories"
-                  :loading="seeding"
-                  size="sm"
-                />
-              </div>
-            </template>
+          <div>
+            <div class="row items-center q-gutter-sm q-mb-md">
+              <q-btn
+                color="primary"
+                icon="add"
+                label="Add Category Group"
+                @click="showAddCategory = true"
+                size="sm"
+              />
+              <q-btn
+                color="accent"
+                icon="auto_awesome"
+                label="Seed Categories with Icons"
+                @click="seedCategories"
+                :loading="seeding"
+                size="sm"
+              />
+            </div>
 
+            <!-- Add Category Form -->
+            <q-card v-if="showAddCategory" class="q-mb-md">
+              <q-card-section>
+                <div class="row q-col-gutter-sm items-center">
+                  <div class="col-2">
+                    <q-select
+                      v-model="editingCategory.icon"
+                      :options="categoryGroupIcons"
+                      option-label="label"
+                      option-value="name"
+                      emit-value
+                      map-options
+                      label="Icon"
+                      dense
+                      outlined
+                    >
+                      <template v-slot:option="scope">
+                        <q-item v-bind="scope.itemProps">
+                          <q-item-section avatar>
+                            <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>{{ scope.opt.label }}</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                      <template v-slot:selected>
+                        <q-icon 
+                          v-if="editingCategory.icon" 
+                          :name="editingCategory.icon" 
+                          :style="{ color: getIconColor(editingCategory.icon, 'group') }"
+                          size="20px"
+                          class="q-mr-xs"
+                        />
+                        <span v-else>Select Icon</span>
+                      </template>
+                    </q-select>
+                  </div>
+                  <div class="col-3">
+                    <q-input
+                      v-model="editingCategory.name"
+                      label="Category Group Name"
+                      dense
+                      outlined
+                      :rules="[val => !!val || 'Required']"
+                    />
+                  </div>
+                  <div class="col-2">
+                    <q-select
+                      v-model="editingCategory.type"
+                      :options="['income', 'expense']"
+                      label="Type"
+                      dense
+                      outlined
+                      :rules="[val => !!val || 'Required']"
+                    />
+                  </div>
+                  <div class="col-3">
+                    <q-input
+                      v-model="editingCategory.description"
+                      label="Description"
+                      dense
+                      outlined
+                    />
+                  </div>
+                  <div class="col-2">
+                    <q-btn
+                      flat
+                      dense
+                      icon="check"
+                      color="positive"
+                      @click="onSaveCategory"
+                      :loading="savingCategory"
+                    />
+                    <q-btn
+                      flat
+                      dense
+                      icon="close"
+                      color="negative"
+                      @click="cancelCategory"
+                    />
+                  </div>
+                </div>
+              </q-card-section>
+            </q-card>
+
+            <q-table
+              :rows="displayRows"
+              :columns="columns"
+              row-key="id"
+              flat
+              bordered
+              :loading="loading"
+              :pagination="{ rowsPerPage: 0 }"
+              class="budget-categories-table"
+            >
             <template v-slot:body="props">
               <!-- Add Category Row -->
               <template v-if="showAddCategory && props.rowIndex === 0">
@@ -125,9 +210,10 @@
               </template>
 
               <!-- Category Group Row (Income/Expense) -->
-              <q-tr v-if="props.row.isCategoryGroup" :key="`category-${props.row.id}`" class="bg-grey-2">
+              <q-tr v-if="props.row.isCategoryGroup" :key="`category-${props.row.id}`" class="bg-grey-2 drag-handle" style="cursor: move;">
                 <q-td>
                   <div class="row items-center">
+                    <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="20px" />
                     <q-btn
                       flat
                       dense
@@ -190,10 +276,12 @@
                 <q-tr
                   v-for="cat in getCategoriesForGroup(props.row.id)"
                   :key="`cat-${cat.id}`"
-                  class="category-row"
+                  class="category-row category-drag-handle"
+                  style="cursor: move;"
                 >
                   <q-td>
                     <div class="row items-center" style="padding-left: 2rem;">
+                      <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="16px" />
                       <q-icon 
                         :name="cat.icon || 'label'" 
                         :style="{ color: cat.icon_color || '#757575' }"
@@ -389,6 +477,7 @@ import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 import { categoryIcons, categoryGroupIcons, getIconByName } from '../utils/category-icons'
+import draggable from 'vuedraggable'
 
 const categoryStructure = {
   expense: [
@@ -590,38 +679,102 @@ export default defineComponent({
       { name: 'actions', label: 'Actions', field: 'actions', align: 'center', sortable: false }
     ]
 
+    const expenseGroups = computed({
+      get() {
+        return categories.value
+          .filter(c => c.type === 'expense' && !c.parent_id)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map(group => ({
+            id: `group-${group.id}`,
+            isCategoryGroup: true,
+            ...group,
+            categoryCount: categories.value.filter(c => c.parent_id === group.id).length
+          }))
+      },
+      set(newValue) {
+        // Update sort_order when groups are reordered
+        updateGroupOrder(newValue, 'expense')
+      }
+    })
+
+    const incomeGroups = computed({
+      get() {
+        return categories.value
+          .filter(c => c.type === 'income' && !c.parent_id)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map(group => ({
+            id: `group-${group.id}`,
+            isCategoryGroup: true,
+            ...group,
+            categoryCount: categories.value.filter(c => c.parent_id === group.id).length
+          }))
+      },
+      set(newValue) {
+        // Update sort_order when groups are reordered
+        updateGroupOrder(newValue, 'income')
+      }
+    })
+
     const displayRows = computed(() => {
       const rows = []
       
-      // Group categories by type and parent
-      const incomeGroups = categories.value.filter(c => c.type === 'income' && !c.parent_id)
-      const expenseGroups = categories.value.filter(c => c.type === 'expense' && !c.parent_id)
-      
-      // Add Income groups
-      incomeGroups.forEach(group => {
-        rows.push({
-          id: `group-${group.id}`,
-          isCategoryGroup: true,
-          ...group,
-          categoryCount: categories.value.filter(c => c.parent_id === group.id).length
-        })
+      // Add Expense groups
+      expenseGroups.value.forEach(group => {
+        rows.push(group)
       })
       
-      // Add Expense groups
-      expenseGroups.forEach(group => {
-        rows.push({
-          id: `group-${group.id}`,
-          isCategoryGroup: true,
-          ...group,
-          categoryCount: categories.value.filter(c => c.parent_id === group.id).length
-        })
+      // Add Income groups
+      incomeGroups.value.forEach(group => {
+        rows.push(group)
       })
       
       return rows
     })
 
     const getCategoriesForGroup = (groupId) => {
-      return categories.value.filter(c => c.parent_id === groupId)
+      return categories.value
+        .filter(c => c.parent_id === groupId)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    }
+
+    const updateGroupOrder = async (newOrder, type) => {
+      try {
+        const updates = newOrder.map((group, index) => {
+          const groupId = group.id.replace('group-', '')
+          return firebaseApi.updateCategory(groupId, { sort_order: index })
+        })
+        await Promise.all(updates)
+        await loadCategories()
+      } catch (error) {
+        console.error('Error updating group order:', error)
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to save new order'
+        })
+      }
+    }
+
+    const onGroupDragEnd = async (type) => {
+      // Order is already updated via computed setter
+      // Just reload to ensure consistency
+      await loadCategories()
+    }
+
+    const onCategoryDragEnd = async (groupId, evt) => {
+      try {
+        const groupCategories = getCategoriesForGroup(groupId)
+        const updates = groupCategories.map((cat, index) => {
+          return firebaseApi.updateCategory(cat.id, { sort_order: index })
+        })
+        await Promise.all(updates)
+        await loadCategories()
+      } catch (error) {
+        console.error('Error updating category order:', error)
+        $q.notify({
+          type: 'negative',
+          message: 'Failed to save new order'
+        })
+      }
     }
 
     const loadCategories = async () => {
@@ -963,11 +1116,15 @@ export default defineComponent({
       categoryGroupIcons,
       columns,
       displayRows,
+      expenseGroups,
+      incomeGroups,
       getCategoriesForGroup,
       toggleGroup,
       getIconColor,
       seeding,
       seedCategories,
+      onGroupDragEnd,
+      onCategoryDragEnd,
       loadCategories,
       onSaveCategory,
       editCategory,
