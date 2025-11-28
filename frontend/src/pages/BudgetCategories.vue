@@ -209,17 +209,19 @@
               </template>
 
               <!-- Category Group Row (Income/Expense) -->
-              <q-tr v-if="props.row.isCategoryGroup" :key="`category-${props.row.id}`" class="bg-grey-2 drag-handle" style="cursor: move;">
+              <q-tr v-if="props.row.isCategoryGroup" :key="`category-${props.row.id}`" :data-group-id="props.row.id" class="bg-grey-2" style="cursor: move;">
                 <q-td>
                   <div class="row items-center">
-                    <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="20px" />
+                    <div class="drag-handle" style="cursor: move; display: inline-flex; align-items: center;">
+                      <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="20px" />
+                    </div>
                     <q-btn
                       flat
                       dense
                       round
                       size="sm"
                       :icon="collapsedGroups[props.row.id] ? 'expand_more' : 'expand_less'"
-                      @click="toggleGroup(props.row.id)"
+                      @click.stop="toggleGroup(props.row.id)"
                       class="q-mr-xs"
                     />
                     <q-icon 
@@ -272,129 +274,123 @@
 
               <!-- Category Rows (children of category group) -->
               <template v-if="props.row.isCategoryGroup && !collapsedGroups[props.row.id]">
-                <draggable
-                  :list="getCategoriesForGroup(props.row.id.replace('group-', ''))"
-                  :animation="200"
-                  handle=".category-drag-handle"
-                  @end="() => onCategoryDragEnd(props.row.id.replace('group-', ''))"
-                  item-key="id"
-                  tag="template"
+                <q-tr
+                  v-for="cat in getCategoriesForGroup(props.row.id.replace('group-', ''))"
+                  :key="`cat-${cat.id}`"
+                  class="category-row"
+                  :data-category-id="cat.id"
+                  :data-group-id="props.row.id"
                 >
-                  <template #item="{ element: cat }">
-                    <q-tr
-                      :key="`cat-${cat.id}`"
-                      class="category-row"
-                    >
-                      <q-td>
-                        <div class="row items-center category-drag-handle" style="padding-left: 2rem; cursor: move;">
-                          <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="16px" />
-                          <q-icon 
-                            :name="cat.icon || 'label'" 
-                            :style="{ color: cat.icon_color || '#757575' }"
-                            size="20px"
-                            class="q-mr-sm"
-                          />
-                          <template v-if="editingCategoryId === cat.id">
-                            <div class="row q-gutter-xs items-center">
-                              <q-select
-                                v-model="editingCategoryItem.icon"
-                                :options="categoryIcons"
-                                option-label="label"
-                                option-value="name"
-                                emit-value
-                                map-options
-                                dense
-                                outlined
-                                style="min-width: 120px;"
-                              >
-                                <template v-slot:option="scope">
-                                  <q-item v-bind="scope.itemProps">
-                                    <q-item-section avatar>
-                                      <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="20px" />
-                                    </q-item-section>
-                                    <q-item-section>
-                                      <q-item-label>{{ scope.opt.label }}</q-item-label>
-                                    </q-item-section>
-                                  </q-item>
-                                </template>
-                                <template v-slot:selected>
-                                  <q-icon 
-                                    v-if="editingCategoryItem.icon" 
-                                    :name="editingCategoryItem.icon" 
-                                    :style="{ color: getIconColor(editingCategoryItem.icon, 'category') }"
-                                    size="16px"
-                                    class="q-mr-xs"
-                                  />
-                                </template>
-                              </q-select>
-                              <q-input
-                                v-model="editingCategoryItem.name"
-                                dense
-                                outlined
-                                style="min-width: 150px;"
-                              />
-                            </div>
-                          </template>
-                          <template v-else>
-                            {{ cat.name }}
-                          </template>
-                        </div>
-                      </q-td>
-                      <q-td>
-                        <template v-if="editingCategoryId === cat.id">
-                          <q-input
-                            v-model="editingCategoryItem.description"
+                  <q-td>
+                    <div class="row items-center" style="padding-left: 2rem;">
+                      <div class="category-drag-handle" style="cursor: move; display: inline-flex; align-items: center;">
+                        <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="16px" />
+                      </div>
+                      <q-icon 
+                        :name="cat.icon || 'label'" 
+                        :style="{ color: cat.icon_color || '#757575' }"
+                        size="20px"
+                        class="q-mr-sm"
+                      />
+                      <template v-if="editingCategoryId === cat.id">
+                        <div class="row q-gutter-xs items-center">
+                          <q-select
+                            v-model="editingCategoryItem.icon"
+                            :options="categoryIcons"
+                            option-label="label"
+                            option-value="name"
+                            emit-value
+                            map-options
                             dense
                             outlined
-                            style="min-width: 200px;"
-                          />
-                        </template>
-                        <template v-else>
-                          <span class="text-caption text-grey-7">{{ cat.description || '-' }}</span>
-                        </template>
-                      </q-td>
-                      <q-td>
-                        <span class="text-caption text-grey-7">{{ props.row.name }}</span>
-                      </q-td>
-                      <q-td>
-                        <template v-if="editingCategoryId === cat.id">
-                          <q-btn
-                            flat
+                            style="min-width: 120px;"
+                          >
+                            <template v-slot:option="scope">
+                              <q-item v-bind="scope.itemProps">
+                                <q-item-section avatar>
+                                  <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="20px" />
+                                </q-item-section>
+                                <q-item-section>
+                                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                                </q-item-section>
+                              </q-item>
+                            </template>
+                            <template v-slot:selected>
+                              <q-icon 
+                                v-if="editingCategoryItem.icon" 
+                                :name="editingCategoryItem.icon" 
+                                :style="{ color: getIconColor(editingCategoryItem.icon, 'category') }"
+                                size="16px"
+                                class="q-mr-xs"
+                              />
+                            </template>
+                          </q-select>
+                          <q-input
+                            v-model="editingCategoryItem.name"
                             dense
-                            icon="check"
-                            color="positive"
-                            @click="onSaveCategoryItem(cat.id)"
-                            :loading="savingCategory"
+                            outlined
+                            style="min-width: 150px;"
                           />
-                          <q-btn
-                            flat
-                            dense
-                            icon="close"
-                            color="negative"
-                            @click="cancelCategoryItem"
-                          />
-                        </template>
-                        <template v-else>
-                          <q-btn
-                            flat
-                            round
-                            dense
-                            icon="edit"
-                            @click="editCategoryItem(cat)"
-                          />
-                          <q-btn
-                            flat
-                            round
-                            dense
-                            icon="delete"
-                            color="negative"
-                            @click="deleteCategoryItem(cat.id)"
-                          />
-                        </template>
-                      </q-td>
-                    </q-tr>
-                  </template>
-                </draggable>
+                        </div>
+                      </template>
+                      <template v-else>
+                        {{ cat.name }}
+                      </template>
+                    </div>
+                  </q-td>
+                  <q-td>
+                    <template v-if="editingCategoryId === cat.id">
+                      <q-input
+                        v-model="editingCategoryItem.description"
+                        dense
+                        outlined
+                        style="min-width: 200px;"
+                      />
+                    </template>
+                    <template v-else>
+                      <span class="text-caption text-grey-7">{{ cat.description || '-' }}</span>
+                    </template>
+                  </q-td>
+                  <q-td>
+                    <span class="text-caption text-grey-7">{{ props.row.name }}</span>
+                  </q-td>
+                  <q-td>
+                    <template v-if="editingCategoryId === cat.id">
+                      <q-btn
+                        flat
+                        dense
+                        icon="check"
+                        color="positive"
+                        @click="onSaveCategoryItem(cat.id)"
+                        :loading="savingCategory"
+                      />
+                      <q-btn
+                        flat
+                        dense
+                        icon="close"
+                        color="negative"
+                        @click="cancelCategoryItem"
+                      />
+                    </template>
+                    <template v-else>
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        icon="edit"
+                        @click="editCategoryItem(cat)"
+                      />
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        icon="delete"
+                        color="negative"
+                        @click="deleteCategoryItem(cat.id)"
+                      />
+                    </template>
+                  </q-td>
+                </q-tr>
 
                 <!-- Add Category Row for this Group -->
                 <q-tr v-if="addingCategoryToGroupId === props.row.id.replace('group-', '')" key="add-cat-row">
@@ -481,11 +477,11 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, computed } from 'vue'
+import { defineComponent, ref, onMounted, computed, nextTick } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 import { categoryIcons, categoryGroupIcons, getIconByName } from '../utils/category-icons'
-import draggable from 'vuedraggable'
+import Sortable from 'sortablejs'
 
 const categoryStructure = {
   expense: [
@@ -671,6 +667,9 @@ export default defineComponent({
     })
 
     const toggleGroup = (groupId) => {
+      if (collapsedGroups.value[groupId] === undefined) {
+        collapsedGroups.value[groupId] = false
+      }
       collapsedGroups.value[groupId] = !collapsedGroups.value[groupId]
     }
 
@@ -1134,7 +1133,53 @@ export default defineComponent({
 
     onMounted(async () => {
       await loadCategories()
+      await nextTick()
+      initDragAndDrop()
     })
+
+    const initDragAndDrop = () => {
+      // Initialize drag and drop for groups
+      const tbody = document.querySelector('.budget-categories-table tbody')
+      if (tbody) {
+        new Sortable(tbody, {
+          handle: '.drag-handle',
+          animation: 200,
+          filter: '.category-row',
+          draggable: 'tr.bg-grey-2',
+          onEnd: async (evt) => {
+            if (evt.oldIndex !== evt.newIndex && evt.item.classList.contains('bg-grey-2')) {
+              await onTableDragEnd()
+            }
+          }
+        })
+      }
+
+      // Initialize drag and drop for categories within each group
+      const groupRows = document.querySelectorAll('tr[data-group-id]')
+      groupRows.forEach((groupRow) => {
+        const groupId = groupRow.getAttribute('data-group-id')
+        const categoryRows = Array.from(groupRow.parentElement?.querySelectorAll(`tr.category-row[data-group-id="${groupId}"]`) || [])
+        if (categoryRows.length > 1) {
+          // Find the container that holds these category rows
+          const container = categoryRows[0].parentElement
+          if (container) {
+            new Sortable(container, {
+              handle: '.category-drag-handle',
+              animation: 200,
+              filter: (el) => {
+                return !el.classList.contains('category-row') || !el.getAttribute('data-group-id') || el.getAttribute('data-group-id') !== groupId
+              },
+              draggable: `tr.category-row[data-group-id="${groupId}"]`,
+              onEnd: async (evt) => {
+                if (evt.oldIndex !== evt.newIndex) {
+                  await onCategoryDragEnd(groupId.replace('group-', ''))
+                }
+              }
+            })
+          }
+        }
+      })
+    }
 
     return {
       categories,
