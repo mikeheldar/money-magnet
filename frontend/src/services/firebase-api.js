@@ -1338,7 +1338,7 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const { writeBatch, doc, serverTimestamp, FieldValue } = await import('firebase/firestore')
+      const { writeBatch, doc, serverTimestamp, deleteField } = await import('firebase/firestore')
       
       const transactions = await this.getAllTransactions()
       
@@ -1357,10 +1357,10 @@ export default {
         batchTransactions.forEach(transaction => {
           const transactionRef = doc(db, 'transactions', transaction.id)
           batch.update(transactionRef, {
-            category_id: FieldValue.delete(),
-            category_source: FieldValue.delete(),
-            category_suggested: FieldValue.delete(),
-            category_confidence: FieldValue.delete(),
+            category_id: deleteField(),
+            category_source: deleteField(),
+            category_suggested: deleteField(),
+            category_confidence: deleteField(),
             updated_at: serverTimestamp()
           })
         })
