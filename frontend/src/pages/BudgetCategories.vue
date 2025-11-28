@@ -673,6 +673,15 @@ export default defineComponent({
         collapsedGroups.value[groupId] = false
       }
       collapsedGroups.value[groupId] = !collapsedGroups.value[groupId]
+      
+      // Update display of all category rows for this group
+      const tbody = document.querySelector('.budget-categories-table tbody')
+      if (tbody) {
+        const categoryRows = Array.from(tbody.querySelectorAll(`tr.category-row[data-group-id="group-${groupId}"]`))
+        categoryRows.forEach(row => {
+          row.style.display = collapsedGroups.value[groupId] ? 'none' : ''
+        })
+      }
     }
 
     const getIconColor = (iconName, type = 'category') => {
