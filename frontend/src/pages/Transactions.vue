@@ -790,10 +790,14 @@ export default defineComponent({
 
     const getFullDateTime = (transaction) => {
       if (!transaction.date) return ''
+      // Use the transaction date field, which should be the actual transaction date
       const date = new Date(transaction.date)
-      if (transaction.created_at && transaction.created_at.toDate) {
-        const created = transaction.created_at.toDate()
-        return created.toLocaleString()
+      // If date is invalid, try created_at as fallback
+      if (isNaN(date.getTime())) {
+        if (transaction.created_at && transaction.created_at.toDate) {
+          return transaction.created_at.toDate().toLocaleString()
+        }
+        return transaction.date // Return as-is if can't parse
       }
       return date.toLocaleString()
     }

@@ -16,14 +16,23 @@
             class="budget-categories-table"
           >
             <template v-slot:top>
-              <q-btn
-                color="primary"
-                icon="add"
-                label="Add Category Group"
-                @click="showAddCategory = true"
-                class="q-mr-sm"
-                size="sm"
-              />
+              <div class="row items-center q-gutter-sm">
+                <q-btn
+                  color="primary"
+                  icon="add"
+                  label="Add Category Group"
+                  @click="showAddCategory = true"
+                  size="sm"
+                />
+                <q-btn
+                  color="accent"
+                  icon="auto_awesome"
+                  label="Seed Categories with Icons"
+                  @click="seedCategories"
+                  :loading="seeding"
+                  size="sm"
+                />
+              </div>
             </template>
 
             <template v-slot:body="props">
@@ -381,6 +390,148 @@ import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 import { categoryIcons, categoryGroupIcons, getIconByName } from '../utils/category-icons'
 
+const categoryStructure = {
+  expense: [
+    {
+      group: { name: 'Food & Dining', icon: 'restaurant', type: 'expense' },
+      categories: [
+        { name: 'Restaurants', icon: 'restaurant' },
+        { name: 'Fast Food', icon: 'fastfood' },
+        { name: 'Coffee', icon: 'coffee' },
+        { name: 'Groceries', icon: 'grocery_store' },
+        { name: 'Dining Out', icon: 'lunch_dining' },
+        { name: 'Drinks', icon: 'local_bar' },
+        { name: 'Dessert', icon: 'cake' }
+      ]
+    },
+    {
+      group: { name: 'Shopping', icon: 'shopping_cart', type: 'expense' },
+      categories: [
+        { name: 'Retail', icon: 'shopping_bag' },
+        { name: 'Online Shopping', icon: 'shopping_cart' },
+        { name: 'Clothing', icon: 'shopping_bag' },
+        { name: 'Electronics', icon: 'shopping_cart' }
+      ]
+    },
+    {
+      group: { name: 'Transportation', icon: 'directions_car', type: 'expense' },
+      categories: [
+        { name: 'Gas', icon: 'local_gas_station' },
+        { name: 'Parking', icon: 'directions_car' },
+        { name: 'Public Transit', icon: 'directions_car' },
+        { name: 'Rideshare', icon: 'directions_car' }
+      ]
+    },
+    {
+      group: { name: 'Home & Utilities', icon: 'home', type: 'expense' },
+      categories: [
+        { name: 'Rent/Mortgage', icon: 'home' },
+        { name: 'Electricity', icon: 'electric_bolt' },
+        { name: 'Water', icon: 'water_drop' },
+        { name: 'Heating', icon: 'local_fire_department' },
+        { name: 'Internet', icon: 'wifi' },
+        { name: 'Phone', icon: 'phone' },
+        { name: 'Maintenance', icon: 'home' }
+      ]
+    },
+    {
+      group: { name: 'Entertainment', icon: 'movie', type: 'expense' },
+      categories: [
+        { name: 'Movies', icon: 'movie' },
+        { name: 'Music', icon: 'music_note' },
+        { name: 'Gaming', icon: 'sports_esports' },
+        { name: 'Theater', icon: 'theater_comedy' },
+        { name: 'Sports Events', icon: 'sports_soccer' },
+        { name: 'Leisure', icon: 'beach_access' }
+      ]
+    },
+    {
+      group: { name: 'Health & Fitness', icon: 'fitness_center', type: 'expense' },
+      categories: [
+        { name: 'Gym', icon: 'fitness_center' },
+        { name: 'Medical', icon: 'local_hospital' },
+        { name: 'Pharmacy', icon: 'local_hospital' },
+        { name: 'Beauty', icon: 'spa' },
+        { name: 'Haircut', icon: 'cut' }
+      ]
+    },
+    {
+      group: { name: 'Personal Care', icon: 'spa', type: 'expense' },
+      categories: [
+        { name: 'Beauty Products', icon: 'spa' },
+        { name: 'Hair Care', icon: 'cut' },
+        { name: 'Laundry', icon: 'dry_cleaning' }
+      ]
+    },
+    {
+      group: { name: 'Education', icon: 'school', type: 'expense' },
+      categories: [
+        { name: 'Tuition', icon: 'school' },
+        { name: 'Books', icon: 'book' },
+        { name: 'Supplies', icon: 'school' }
+      ]
+    },
+    {
+      group: { name: 'Travel', icon: 'flight', type: 'expense' },
+      categories: [
+        { name: 'Flights', icon: 'flight' },
+        { name: 'Hotels', icon: 'home' },
+        { name: 'Vacation', icon: 'beach_access' }
+      ]
+    },
+    {
+      group: { name: 'Bills & Services', icon: 'receipt', type: 'expense' },
+      categories: [
+        { name: 'Bills', icon: 'receipt' },
+        { name: 'Subscriptions', icon: 'receipt' },
+        { name: 'Insurance', icon: 'receipt' }
+      ]
+    },
+    {
+      group: { name: 'Gifts & Donations', icon: 'card_giftcard', type: 'expense' },
+      categories: [
+        { name: 'Gifts', icon: 'card_giftcard' },
+        { name: 'Donations', icon: 'favorite' },
+        { name: 'Celebrations', icon: 'celebration' }
+      ]
+    },
+    {
+      group: { name: 'Pets', icon: 'pets', type: 'expense' },
+      categories: [
+        { name: 'Pet Food', icon: 'pets' },
+        { name: 'Veterinary', icon: 'pets' },
+        { name: 'Pet Supplies', icon: 'pets' }
+      ]
+    }
+  ],
+  income: [
+    {
+      group: { name: 'Salary & Wages', icon: 'work', type: 'income' },
+      categories: [
+        { name: 'Salary', icon: 'work' },
+        { name: 'Wages', icon: 'work' },
+        { name: 'Bonus', icon: 'emoji_events' }
+      ]
+    },
+    {
+      group: { name: 'Investment Income', icon: 'trending_up', type: 'income' },
+      categories: [
+        { name: 'Dividends', icon: 'trending_up' },
+        { name: 'Interest', icon: 'trending_up' },
+        { name: 'Capital Gains', icon: 'trending_up' }
+      ]
+    },
+    {
+      group: { name: 'Other Income', icon: 'attach_money', type: 'income' },
+      categories: [
+        { name: 'Freelance', icon: 'work' },
+        { name: 'Gifts Received', icon: 'card_giftcard' },
+        { name: 'Refunds', icon: 'attach_money' }
+      ]
+    }
+  ]
+}
+
 export default defineComponent({
   name: 'BudgetCategoriesPage',
   setup() {
@@ -388,6 +539,7 @@ export default defineComponent({
     const categories = ref([])
     const loading = ref(false)
     const savingCategory = ref(false)
+    const seeding = ref(false)
     const showAddCategory = ref(false)
     const addingCategoryToGroupId = ref(null)
     const editingCategoryId = ref(null)
@@ -708,6 +860,90 @@ export default defineComponent({
       })
     }
 
+    const seedCategories = async () => {
+      const confirmed = await new Promise((resolve) => {
+        $q.dialog({
+          title: 'Seed Categories?',
+          message: 'This will create category groups and categories with colorful icons. Existing categories will be skipped.',
+          cancel: true,
+          persistent: true
+        }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+      })
+
+      if (!confirmed) return
+
+      seeding.value = true
+      try {
+        const existingCategories = await firebaseApi.getCategories()
+        
+        let createdCount = 0
+        let skippedCount = 0
+
+        for (const type of ['expense', 'income']) {
+          for (const groupData of categoryStructure[type]) {
+            const existingGroup = existingCategories.find(
+              c => c.name === groupData.group.name && !c.parent_id && c.type === type
+            )
+
+            let groupId
+            if (existingGroup) {
+              groupId = existingGroup.id
+              skippedCount++
+            } else {
+              const group = await firebaseApi.createCategory({
+                name: groupData.group.name,
+                type: groupData.group.type,
+                icon: groupData.group.icon,
+                icon_color: getIconColor(groupData.group.icon, 'group'),
+                description: '',
+                parent_id: null
+              })
+              groupId = group.id
+              createdCount++
+            }
+
+            for (const categoryData of groupData.categories) {
+              const existingCategory = existingCategories.find(
+                c => c.name === categoryData.name && c.parent_id === groupId
+              )
+
+              if (!existingCategory) {
+                await firebaseApi.createCategory({
+                  name: categoryData.name,
+                  type: groupData.group.type,
+                  icon: categoryData.icon,
+                  icon_color: getIconColor(categoryData.icon, 'category'),
+                  description: '',
+                  parent_id: groupId
+                })
+                createdCount++
+              } else {
+                skippedCount++
+              }
+            }
+          }
+        }
+
+        $q.notify({
+          type: 'positive',
+          message: `Created ${createdCount} new categories! Skipped ${skippedCount} existing.`,
+          position: 'top',
+          timeout: 3000
+        })
+
+        await loadCategories()
+      } catch (error) {
+        console.error('Error seeding categories:', error)
+        $q.notify({
+          type: 'negative',
+          message: `Failed to seed categories: ${error.message}`,
+          position: 'top'
+        })
+      } finally {
+        seeding.value = false
+      }
+    }
+
     onMounted(async () => {
       await loadCategories()
     })
@@ -730,6 +966,8 @@ export default defineComponent({
       getCategoriesForGroup,
       toggleGroup,
       getIconColor,
+      seeding,
+      seedCategories,
       loadCategories,
       onSaveCategory,
       editCategory,
