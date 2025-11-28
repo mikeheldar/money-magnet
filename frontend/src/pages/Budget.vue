@@ -40,8 +40,16 @@
                   <!-- Group Header Row -->
                   <q-tr v-if="item.isGroup" class="budget-group-row bg-grey-1">
                     <q-td>
-                      <div style="padding-left: 2rem;" class="text-weight-medium">
-                        {{ item.name }}
+                      <div class="row items-center" style="padding-left: 2rem;">
+                        <q-btn
+                          flat
+                          dense
+                          round
+                          :icon="collapsedGroups[item.id] ? 'expand_more' : 'expand_less'"
+                          @click="collapsedGroups[item.id] = !collapsedGroups[item.id]"
+                          size="sm"
+                        />
+                        <span class="text-weight-medium q-ml-sm">{{ item.name }}</span>
                       </div>
                     </q-td>
                     <q-td class="text-right text-weight-medium">
@@ -56,7 +64,7 @@
                     <q-td></q-td>
                   </q-tr>
                   <!-- Child Items -->
-                  <template v-if="item.isGroup && item.children">
+                  <template v-if="item.isGroup && item.children && !collapsedGroups[item.id]">
                     <q-tr
                       v-for="child in item.children"
                       :key="`income-child-${child.id || child.name}`"
