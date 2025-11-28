@@ -273,13 +273,14 @@
               </q-tr>
 
               <!-- Category Rows (children of category group) -->
-              <template v-if="props.row.isCategoryGroup && !collapsedGroups[props.row.id]">
+              <template v-if="props.row.isCategoryGroup">
                 <q-tr
                   v-for="cat in getCategoriesForGroup(props.row.id.replace('group-', ''))"
                   :key="`cat-${cat.id}`"
                   class="category-row"
                   :data-category-id="cat.id"
                   :data-group-id="props.row.id"
+                  v-show="!collapsedGroups[props.row.id]"
                 >
                   <q-td>
                     <div class="row items-center" style="padding-left: 2rem;">
@@ -1161,9 +1162,13 @@ export default defineComponent({
             // When dragging starts, find all category rows for this group and mark them
             const groupId = evt.item.getAttribute('data-group-id')
             if (groupId) {
+              // Get all category rows, even if they're hidden (collapsed)
               const categoryRows = Array.from(tbody.querySelectorAll(`tr.category-row[data-group-id="${groupId}"]`))
               categoryRows.forEach(row => {
                 row.setAttribute('data-dragging-with-group', 'true')
+                // Store original display state
+                const computedStyle = window.getComputedStyle(row)
+                row.setAttribute('data-original-display', computedStyle.display)
               })
             }
           },
@@ -1187,12 +1192,19 @@ export default defineComponent({
                 }
                 
                 categoryRows.forEach((row) => {
+                  // Restore original display state (preserve collapsed state)
+                  const originalDisplay = row.getAttribute('data-original-display')
+                  if (originalDisplay) {
+                    row.style.display = originalDisplay
+                  }
+                  
                   if (nextSibling) {
                     tbody.insertBefore(row, nextSibling)
                   } else {
                     tbody.appendChild(row)
                   }
                   row.removeAttribute('data-dragging-with-group')
+                  row.removeAttribute('data-original-display')
                 })
               }
               await onTableDragEnd()
