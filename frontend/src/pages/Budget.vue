@@ -562,6 +562,7 @@ export default defineComponent({
     const showAddIncome = ref(false)
     const showAddExpense = ref(false)
     const editingBudgetId = ref(null)
+    const collapsedGroups = ref({}) // Track collapsed state for each group
     
     const budgets = ref([])
     const categories = ref([])
@@ -808,23 +809,55 @@ export default defineComponent({
     })
 
     const totalIncome = computed(() => {
-      return incomeItems.value.reduce((totals, item) => {
-        return {
-          budget: totals.budget + item.budget,
-          actual: totals.actual + item.actual,
-          remaining: totals.remaining + item.remaining
+      // Sum all individual categories (not groups), so totals are accurate
+      let totalBudget = 0
+      let totalActual = 0
+      
+      incomeItems.value.forEach(item => {
+        if (item.isGroup && item.children) {
+          // For groups, sum all child categories
+          item.children.forEach(child => {
+            totalBudget += child.budget || 0
+            totalActual += child.actual || 0
+          })
+        } else {
+          // For individual items, add directly
+          totalBudget += item.budget || 0
+          totalActual += item.actual || 0
         }
-      }, { budget: 0, actual: 0, remaining: 0 })
+      })
+      
+      return {
+        budget: totalBudget,
+        actual: totalActual,
+        remaining: totalBudget - totalActual
+      }
     })
 
     const totalExpenses = computed(() => {
-      return expenseItems.value.reduce((totals, item) => {
-        return {
-          budget: totals.budget + item.budget,
-          actual: totals.actual + item.actual,
-          remaining: totals.remaining + item.remaining
+      // Sum all individual categories (not groups), so totals are accurate
+      let totalBudget = 0
+      let totalActual = 0
+      
+      expenseItems.value.forEach(item => {
+        if (item.isGroup && item.children) {
+          // For groups, sum all child categories
+          item.children.forEach(child => {
+            totalBudget += child.budget || 0
+            totalActual += child.actual || 0
+          })
+        } else {
+          // For individual items, add directly
+          totalBudget += item.budget || 0
+          totalActual += item.actual || 0
         }
-      }, { budget: 0, actual: 0, remaining: 0 })
+      })
+      
+      return {
+        budget: totalBudget,
+        actual: totalActual,
+        remaining: totalBudget - totalActual
+      }
     })
 
     const formatCurrency = (value) => {
@@ -1034,6 +1067,7 @@ export default defineComponent({
       expenseItems,
       totalIncome,
       totalExpenses,
+      collapsedGroups,
       getChildCategories,
       formatCurrency,
       cancelAddBudget,
