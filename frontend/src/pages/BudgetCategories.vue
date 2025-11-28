@@ -1138,16 +1138,51 @@ export default defineComponent({
     })
 
     const initDragAndDrop = () => {
-      // Initialize drag and drop for groups
+      // Initialize drag and drop for groups (groups move with their categories)
       const tbody = document.querySelector('.budget-categories-table tbody')
       if (tbody) {
         new Sortable(tbody, {
           handle: '.drag-handle',
           animation: 200,
-          filter: '.category-row',
           draggable: 'tr.bg-grey-2',
+          onStart: (evt) => {
+            // When dragging starts, find all category rows for this group and mark them
+            const groupId = evt.item.getAttribute('data-group-id')
+            if (groupId) {
+              const categoryRows = Array.from(tbody.querySelectorAll(`tr.category-row[data-group-id="${groupId}"]`))
+              categoryRows.forEach(row => {
+                row.setAttribute('data-dragging-with-group', 'true')
+              })
+            }
+          },
           onEnd: async (evt) => {
             if (evt.oldIndex !== evt.newIndex && evt.item.classList.contains('bg-grey-2')) {
+              const groupId = evt.item.getAttribute('data-group-id')
+              if (groupId) {
+                // Move all category rows to follow the group
+                const categoryRows = Array.from(tbody.querySelectorAll(`tr.category-row[data-group-id="${groupId}"][data-dragging-with-group="true"]`))
+                const groupRow = evt.item
+                
+                // Remove category rows from their current position
+                categoryRows.forEach(row => {
+                  row.remove()
+                })
+                
+                // Insert category rows right after the group row
+                let nextSibling = groupRow.nextElementSibling
+                while (nextSibling && nextSibling.classList.contains('category-row') && nextSibling.getAttribute('data-group-id') === groupId) {
+                  nextSibling = nextSibling.nextElementSibling
+                }
+                
+                categoryRows.forEach((row, index) => {
+                  if (nextSibling) {
+                    tbody.insertBefore(row, nextSibling)
+                  } else {
+                    tbody.appendChild(row)
+                  }
+                  row.removeAttribute('data-dragging-with-group')
+                })
+              }
               await onTableDragEnd()
             }
           }
