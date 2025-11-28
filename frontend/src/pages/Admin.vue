@@ -251,7 +251,7 @@ export default {
           }))
 
           // Update transactions in Firestore
-          const { updateDoc, doc } = await import('firebase/firestore')
+          const { updateDoc, doc, getDoc } = await import('firebase/firestore')
           const { db } = await import('../config/firebase')
           
           let successCount = 0
@@ -260,9 +260,27 @@ export default {
           for (const result of response.results) {
             if (result.category_id && result.transaction_id) {
               try {
+                // Fetch category name to include in update
+                let categoryName = result.category_name || null
+                if (!categoryName && result.category_id) {
+                  try {
+                    const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
+                    if (categoryDoc.exists()) {
+                      categoryName = categoryDoc.data().name
+                    }
+                  } catch (catError) {
+                    console.warn(`Could not fetch category name for ${result.category_id}:`, catError)
+                  }
+                }
+
                 const updateData = {
                   category_id: result.category_id,
                   updated_at: new Date().toISOString()
+                }
+                
+                // Include category_name if we have it
+                if (categoryName) {
+                  updateData.category_name = categoryName
                 }
                 
                 // Set category_source if AI categorized
@@ -335,7 +353,7 @@ export default {
           }))
 
           // Update transactions in Firestore
-          const { updateDoc, doc } = await import('firebase/firestore')
+          const { updateDoc, doc, getDoc } = await import('firebase/firestore')
           const { db } = await import('../config/firebase')
           
           let successCount = 0
@@ -344,9 +362,27 @@ export default {
           for (const result of response.results) {
             if (result.category_id && result.transaction_id) {
               try {
+                // Fetch category name to include in update
+                let categoryName = result.category_name || null
+                if (!categoryName && result.category_id) {
+                  try {
+                    const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
+                    if (categoryDoc.exists()) {
+                      categoryName = categoryDoc.data().name
+                    }
+                  } catch (catError) {
+                    console.warn(`Could not fetch category name for ${result.category_id}:`, catError)
+                  }
+                }
+
                 const updateData = {
                   category_id: result.category_id,
                   updated_at: new Date().toISOString()
+                }
+                
+                // Include category_name if we have it
+                if (categoryName) {
+                  updateData.category_name = categoryName
                 }
                 
                 // Set category_source if AI categorized
