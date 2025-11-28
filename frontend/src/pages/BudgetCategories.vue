@@ -335,7 +335,7 @@
                         </div>
                       </template>
                       <template v-else>
-                        {{ cat.name }}
+                        <span>{{ cat.name }}</span>
                       </template>
                     </div>
                   </q-td>
