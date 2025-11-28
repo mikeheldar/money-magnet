@@ -638,7 +638,6 @@ export default defineComponent({
     const editingCategoryId = ref(null)
     const collapsedGroups = ref({})
     let sortableInstances = []
-    let sortableInstances = []
     
     const editingCategory = ref({
       id: null,
