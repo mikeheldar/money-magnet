@@ -283,13 +283,13 @@
                   v-show="!collapsedGroups[props.row.id]"
                 >
                   <q-td>
-                    <div class="row items-center" style="padding-left: 2rem;">
-                      <div class="category-drag-handle" style="cursor: move; display: inline-flex; align-items: center;">
+                    <div class="row items-center no-wrap" style="padding-left: 2rem;">
+                      <div class="category-drag-handle" style="cursor: move; display: inline-flex; align-items: center; flex-shrink: 0;">
                         <q-icon name="drag_indicator" class="q-mr-xs text-grey-6" size="16px" />
                       </div>
                       <q-icon 
                         :name="cat.icon || 'label'" 
-                        :style="{ color: cat.icon_color || '#757575' }"
+                        :style="{ color: cat.icon_color || '#757575', flexShrink: 0 }"
                         size="20px"
                         class="q-mr-sm"
                       />
