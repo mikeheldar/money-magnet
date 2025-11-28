@@ -283,7 +283,22 @@
                     clearable
                     emit-value
                     map-options
-                  />
+                  >
+                    <template v-slot:option="scope">
+                      <q-item v-bind="scope.itemProps">
+                        <q-item-section avatar v-if="getCategoryIcon(scope.opt.id)">
+                          <q-icon 
+                            :name="getCategoryIcon(scope.opt.id).name"
+                            :style="{ color: getCategoryIcon(scope.opt.id).color }"
+                            size="18px"
+                          />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>{{ scope.opt.name }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </template>
+                  </q-select>
                 </q-td>
                 <q-td v-else class="category-cell">
                   <div class="row items-center no-wrap">
