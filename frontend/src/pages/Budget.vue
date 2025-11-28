@@ -3,7 +3,14 @@
     <div class="col-12">
       <q-card style="border-radius: 12px;">
         <q-card-section>
-          <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Budget</div>
+          <div class="row items-center justify-between q-mb-md">
+            <div class="text-h5" style="color: #3BA99F; font-weight: 600;">Budget</div>
+            <q-toggle
+              v-model="hideZeroActuals"
+              label="Hide items with $0 actuals"
+              color="primary"
+            />
+          </div>
           
           <q-table
             :rows="displayRows"
@@ -579,6 +586,7 @@ export default defineComponent({
     const showAddExpense = ref(false)
     const editingBudgetId = ref(null)
     const collapsedGroups = ref({}) // Track collapsed state for each group
+    const hideZeroActuals = ref(true) // Default to hiding items with $0 actuals
     
     const budgets = ref([])
     const categories = ref([])
@@ -722,6 +730,18 @@ export default defineComponent({
         }
       })
       
+      // Filter out items with $0 actuals if toggle is enabled
+      if (hideZeroActuals.value) {
+        return items.filter(item => {
+          if (item.isGroup && item.children) {
+            // For groups, check if any child has actuals > 0, or group itself has actuals > 0
+            const hasChildActuals = item.children.some(child => (child.actual || 0) > 0)
+            return (item.actual || 0) > 0 || hasChildActuals
+          }
+          return (item.actual || 0) > 0
+        }).sort((a, b) => a.name.localeCompare(b.name))
+      }
+      
       return items.sort((a, b) => a.name.localeCompare(b.name))
     })
 
@@ -820,6 +840,18 @@ export default defineComponent({
           })
         }
       })
+      
+      // Filter out items with $0 actuals if toggle is enabled
+      if (hideZeroActuals.value) {
+        return items.filter(item => {
+          if (item.isGroup && item.children) {
+            // For groups, check if any child has actuals > 0, or group itself has actuals > 0
+            const hasChildActuals = item.children.some(child => (child.actual || 0) > 0)
+            return (item.actual || 0) > 0 || hasChildActuals
+          }
+          return (item.actual || 0) > 0
+        }).sort((a, b) => a.name.localeCompare(b.name))
+      }
       
       return items.sort((a, b) => a.name.localeCompare(b.name))
     })
@@ -1084,6 +1116,7 @@ export default defineComponent({
       totalIncome,
       totalExpenses,
       collapsedGroups,
+      hideZeroActuals,
       getChildCategories,
       formatCurrency,
       cancelAddBudget,
