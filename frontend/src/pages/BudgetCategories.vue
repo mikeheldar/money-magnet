@@ -638,6 +638,7 @@ export default defineComponent({
     const editingCategoryId = ref(null)
     const collapsedGroups = ref({})
     let sortableInstances = []
+    let sortableInstances = []
     
     const editingCategory = ref({
       id: null,
@@ -1138,11 +1139,22 @@ export default defineComponent({
       initDragAndDrop()
     })
 
+    const destroySortableInstances = () => {
+      sortableInstances.forEach(instance => {
+        if (instance && instance.destroy) {
+          instance.destroy()
+        }
+      })
+      sortableInstances = []
+    }
+
     const initDragAndDrop = () => {
+      destroySortableInstances()
+      
       // Initialize drag and drop for groups (groups move with their categories)
       const tbody = document.querySelector('.budget-categories-table tbody')
       if (tbody) {
-        new Sortable(tbody, {
+        const groupSortable = new Sortable(tbody, {
           handle: '.drag-handle',
           animation: 200,
           draggable: 'tr.bg-grey-2',
@@ -1175,7 +1187,7 @@ export default defineComponent({
                   nextSibling = nextSibling.nextElementSibling
                 }
                 
-                categoryRows.forEach((row, index) => {
+                categoryRows.forEach((row) => {
                   if (nextSibling) {
                     tbody.insertBefore(row, nextSibling)
                   } else {
@@ -1185,33 +1197,108 @@ export default defineComponent({
                 })
               }
               await onTableDragEnd()
+              // Reinitialize drag and drop after move to fix collapse/expand
+              await nextTick()
+              initDragAndDrop()
             }
           }
         })
+        sortableInstances.push(groupSortable)
       }
 
       // Initialize drag and drop for categories within each group
-      const groupRows = document.querySelectorAll('tr[data-group-id]')
+      const groupRows = document.querySelectorAll('tr[data-group-id].bg-grey-2')
       groupRows.forEach((groupRow) => {
         const groupId = groupRow.getAttribute('data-group-id')
         const categoryRows = Array.from(groupRow.parentElement?.querySelectorAll(`tr.category-row[data-group-id="${groupId}"]`) || [])
-        if (categoryRows.length > 1) {
-          // Find the container that holds these category rows
+        
+        if (categoryRows.length > 0) {
+          // Find the container that holds these category rows (the tbody)
           const container = categoryRows[0].parentElement
           if (container) {
-            new Sortable(container, {
+            const categorySortable = new Sortable(container, {
               handle: '.category-drag-handle',
               animation: 200,
-              filter: (el) => {
-                return !el.classList.contains('category-row') || !el.getAttribute('data-group-id') || el.getAttribute('data-group-id') !== groupId
-              },
               draggable: `tr.category-row[data-group-id="${groupId}"]`,
+              group: `category-group-${groupId}`, // Prevent cross-group dragging by default
+              onStart: (evt) => {
+                evt.item.setAttribute('data-original-group-id', groupId)
+                evt.item.setAttribute('data-original-index', evt.oldIndex)
+              },
               onEnd: async (evt) => {
                 if (evt.oldIndex !== evt.newIndex) {
-                  await onCategoryDragEnd(groupId.replace('group-', ''))
+                  const originalGroupId = evt.item.getAttribute('data-original-group-id')
+                  const currentGroupId = evt.item.getAttribute('data-group-id')
+                  
+                  // Find which group this category is now under by looking at surrounding rows
+                  let currentRow = evt.item.previousElementSibling
+                  let newGroupId = originalGroupId
+                  
+                  // Look backwards for the group row
+                  while (currentRow) {
+                    if (currentRow.classList.contains('bg-grey-2') && currentRow.getAttribute('data-group-id')) {
+                      newGroupId = currentRow.getAttribute('data-group-id')
+                      break
+                    }
+                    currentRow = currentRow.previousElementSibling
+                  }
+                  
+                  // If moved to different group, ask for confirmation
+                  if (newGroupId !== originalGroupId) {
+                    const newGroup = categories.value.find(c => c.id === newGroupId?.replace('group-', ''))
+                    const oldGroup = categories.value.find(c => c.id === originalGroupId?.replace('group-', ''))
+                    const category = categories.value.find(c => c.id === evt.item.getAttribute('data-category-id'))
+                    
+                    if (newGroup && oldGroup && category) {
+                      const confirmed = await new Promise((resolve) => {
+                        $q.dialog({
+                          title: 'Move Category to Different Group?',
+                          message: `Are you sure you want to move "${category.name}" from "${oldGroup.name}" to "${newGroup.name}"?`,
+                          cancel: true,
+                          persistent: true
+                        }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+                      })
+                      
+                      if (confirmed) {
+                        // Update the category's parent_id
+                        await firebaseApi.updateCategory(category.id, {
+                          parent_id: newGroupId.replace('group-', '')
+                        })
+                        // Update the data attribute
+                        evt.item.setAttribute('data-group-id', newGroupId)
+                        await loadCategories()
+                        await nextTick()
+                        initDragAndDrop()
+                      } else {
+                        // Revert the move - put it back in original position
+                        const originalGroupRow = container.querySelector(`tr[data-group-id="${originalGroupId}"]`)
+                        if (originalGroupRow) {
+                          const originalCategoryRows = Array.from(container.querySelectorAll(`tr.category-row[data-group-id="${originalGroupId}"]`))
+                          const originalIndex = parseInt(evt.item.getAttribute('data-original-index'))
+                          const targetRow = originalCategoryRows[originalIndex]
+                          if (targetRow && targetRow !== evt.item) {
+                            container.insertBefore(evt.item, targetRow)
+                          } else if (originalCategoryRows.length > 0) {
+                            container.insertBefore(evt.item, originalCategoryRows[0])
+                          } else {
+                            container.insertBefore(evt.item, originalGroupRow.nextElementSibling)
+                          }
+                        }
+                        evt.item.setAttribute('data-group-id', originalGroupId)
+                        return
+                      }
+                    }
+                  } else {
+                    // Just reordered within same group
+                    await onCategoryDragEnd(originalGroupId.replace('group-', ''))
+                  }
+                  
+                  evt.item.removeAttribute('data-original-group-id')
+                  evt.item.removeAttribute('data-original-index')
                 }
               }
             })
+            sortableInstances.push(categorySortable)
           }
         }
       })
