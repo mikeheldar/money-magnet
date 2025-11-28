@@ -194,10 +194,24 @@ export default {
           for (const result of response.results) {
             if (result.category_id && result.transaction_id) {
               try {
-                await updateDoc(doc(db, 'transactions', result.transaction_id), {
+                const updateData = {
                   category_id: result.category_id,
                   updated_at: new Date().toISOString()
-                })
+                }
+                
+                // Set category_source if AI categorized
+                if (result.category_source === 'ai') {
+                  updateData.category_source = 'ai'
+                  updateData.category_suggested = true
+                  updateData.category_confidence = result.confidence || 0.8
+                } else if (result.source === 'ai') {
+                  // Fallback to source field
+                  updateData.category_source = 'ai'
+                  updateData.category_suggested = true
+                  updateData.category_confidence = result.confidence || 0.8
+                }
+                
+                await updateDoc(doc(db, 'transactions', result.transaction_id), updateData)
                 successCount++
               } catch (error) {
                 console.error(`Failed to update transaction ${result.transaction_id}:`, error)

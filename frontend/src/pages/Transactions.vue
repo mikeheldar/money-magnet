@@ -264,15 +264,15 @@
                 <q-td v-else class="category-cell">
                   <div class="row items-center no-wrap">
                     <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
-                    <q-badge 
-                      v-if="props.row.category_suggested" 
-                      color="blue" 
-                      label="AI" 
+                    <q-icon 
+                      v-if="props.row.category_source === 'ai'" 
+                      name="auto_awesome" 
+                      color="primary"
+                      size="16px"
                       class="q-ml-xs"
-                      size="sm"
                     >
                       <q-tooltip>Auto-categorized by AI</q-tooltip>
-                    </q-badge>
+                    </q-icon>
                   </div>
                   <q-tooltip v-if="props.row.category_name && props.row.category_name.length > 15">
                     {{ props.row.category_name }}
@@ -326,6 +326,7 @@
 import { defineComponent, ref, onMounted, watch, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
+import { auth } from '../config/firebase'
 
 export default defineComponent({
   name: 'TransactionsPage',
@@ -444,7 +445,10 @@ export default defineComponent({
       description: '',
       merchant: '',
       category_id: null,
-      account_id: null
+      account_id: null,
+      category_source: null,
+      original_category_id: null,
+      original_merchant: null
     })
 
     const accountOptions = ref([])
@@ -621,7 +625,10 @@ export default defineComponent({
         description: transaction.description || '',
         merchant: transaction.merchant || '',
         category_id: transaction.category_id || null,
-        account_id: transaction.account_id || null
+        account_id: transaction.account_id || null,
+        category_source: transaction.category_source || null,
+        original_category_id: transaction.category_id || null,
+        original_merchant: transaction.merchant || ''
       }
     }
 
@@ -635,7 +642,10 @@ export default defineComponent({
         description: '',
         merchant: '',
         category_id: null,
-        account_id: null
+        account_id: null,
+        category_source: null,
+        original_category_id: null,
+        original_merchant: null
       }
     }
 
@@ -648,12 +658,71 @@ export default defineComponent({
         return
       }
 
+      const tx = editingTransaction.value
+      const wasAICategorized = tx.category_source === 'ai'
+      const categoryChanged = tx.category_id !== tx.original_category_id
+      const hasMerchant = tx.merchant && tx.merchant.trim().length > 0
+
+      // If AI-categorized transaction category was changed, ask about updating all transactions for merchant
+      if (wasAICategorized && categoryChanged && hasMerchant && tx.category_id) {
+        const result = await new Promise((resolve) => {
+          $q.dialog({
+            title: 'Update All Transactions?',
+            message: `Update all transactions from "${tx.merchant}" to use this category? This will also learn this pattern for future transactions.`,
+            cancel: true,
+            persistent: true,
+            ok: {
+              label: 'Update All & Learn',
+              color: 'primary'
+            },
+            cancel: {
+              label: 'Just This One',
+              flat: true
+            }
+          }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+        })
+
+        if (result) {
+          // Update all transactions for this merchant pattern and save mapping
+          try {
+            await firebaseApi.updateTransactionsForMerchant({
+              user_id: auth.currentUser?.uid,
+              merchant: tx.merchant,
+              category_id: tx.category_id,
+              transaction_type: tx.type
+            })
+            
+            $q.notify({
+              type: 'positive',
+              message: `Updated all transactions from "${tx.merchant}" and learned this pattern`,
+              timeout: 3000
+            })
+          } catch (err) {
+            console.error('Error updating transactions for merchant:', err)
+            $q.notify({
+              type: 'warning',
+              message: 'Updated this transaction, but failed to update others: ' + err.message
+            })
+          }
+        }
+      }
+
       updating.value = true
       try {
-        await firebaseApi.updateTransaction(editingTransaction.value.id, {
+        // Remove AI indicators when user manually changes category
+        const updateData = {
           ...editingTransaction.value,
           amount: parseFloat(editingTransaction.value.amount)
-        })
+        }
+        
+        // Remove AI indicators if category was changed or confirmed
+        if (categoryChanged || !wasAICategorized) {
+          delete updateData.category_source
+          delete updateData.category_suggested
+          delete updateData.category_confidence
+        }
+        
+        await firebaseApi.updateTransaction(tx.id, updateData)
         
         $q.notify({
           type: 'positive',

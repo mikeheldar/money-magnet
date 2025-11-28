@@ -688,11 +688,13 @@ exports.onTransactionCreated = onDocumentCreated(
       // Update transaction with suggested category
       if (response.data && response.data.category_id) {
         const transactionRef = admin.firestore().collection('transactions').doc(transactionId);
+        const source = response.data.source || 'ai';
+        const categorySource = response.data.category_source || (source === 'ai' ? 'ai' : (source === 'learned' ? 'learned' : null));
         const updateData = {
           category_id: response.data.category_id,
           category_suggested: true,
           category_confidence: response.data.confidence || 0.8,
-          category_source: response.data.source || 'n8n',
+          category_source: categorySource,
           updated_at: admin.firestore.FieldValue.serverTimestamp(),
         };
         
@@ -1050,6 +1052,130 @@ exports.getUserCategoriesHttp = onCall(async (request) => {
   } catch (error) {
     console.error('❌ [Function] Error getting user categories:', error);
     throw new functions.https.HttpsError('internal', 'Failed to get user categories', error);
+  }
+});
+
+// Update all transactions for a merchant pattern and save mapping
+exports.updateTransactionsForMerchant = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const userId = request.auth.uid;
+  const { merchant, pattern, category_id, category_name, transaction_type } = request.data;
+
+  console.log('🔵 [Function] updateTransactionsForMerchant called');
+  console.log('🔵 [Function] Request data:', JSON.stringify(request.data, null, 2));
+
+  if (!merchant || !pattern || !category_id || !category_name || !transaction_type) {
+    throw new functions.https.HttpsError('invalid-argument', 'merchant, pattern, category_id, category_name, and transaction_type are required');
+  }
+
+  try {
+    // Normalize function (same as N8N)
+    const normalize = (str) => {
+      if (!str) return '';
+      return str
+        .toUpperCase()
+        .replace(/[^A-Z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Find all transactions matching the pattern
+    const transactionsRef = admin.firestore().collection('transactions');
+    const snapshot = await transactionsRef
+      .where('user_id', '==', userId)
+      .where('type', '==', transaction_type)
+      .get();
+
+    let updatedCount = 0;
+    const transactionsToUpdate = [];
+
+    // Find all matching transactions
+    snapshot.docs.forEach((doc) => {
+      const tx = doc.data();
+      const txMerchant = tx.merchant || '';
+      const txDescription = tx.description || '';
+      
+      // Normalize and check if pattern matches
+      const normalizedMerchant = normalize(txMerchant);
+      const normalizedDescription = normalize(txDescription);
+      const txPattern = normalizedMerchant || normalizedDescription;
+
+      if (txPattern === pattern) {
+        transactionsToUpdate.push(doc.ref);
+      }
+    });
+
+    // Update transactions in batches (Firestore batch limit is 500)
+    const batchSize = 500;
+    for (let i = 0; i < transactionsToUpdate.length; i += batchSize) {
+      const batch = admin.firestore().batch();
+      const batchRefs = transactionsToUpdate.slice(i, i + batchSize);
+      
+      batchRefs.forEach((ref) => {
+        batch.update(ref, {
+          category_id: category_id,
+          category_source: admin.firestore.FieldValue.delete(), // Remove AI indicator
+          category_suggested: admin.firestore.FieldValue.delete(),
+          category_confidence: admin.firestore.FieldValue.delete(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      
+      await batch.commit();
+      updatedCount += batchRefs.length;
+    }
+
+    // Save category mapping for future transactions
+    const mappingsRef = admin.firestore().collection('category_mappings');
+    const existing = await mappingsRef
+      .where('user_id', '==', userId)
+      .where('pattern', '==', pattern)
+      .where('transaction_type', '==', transaction_type)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      // Update existing mapping
+      await existing.docs[0].ref.update({
+        category_id: category_id,
+        category_name: category_name,
+        confidence: 1.0,
+        match_type: 'merchant',
+        usage_count: admin.firestore.FieldValue.increment(1),
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+      console.log('✅ [Function] Updated existing category mapping');
+    } else {
+      // Create new mapping
+      await mappingsRef.add({
+        user_id: userId,
+        pattern: pattern,
+        category_id: category_id,
+        category_name: category_name,
+        transaction_type: transaction_type,
+        confidence: 1.0,
+        match_type: 'merchant',
+        usage_count: 1,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+      console.log('✅ [Function] Created new category mapping');
+    }
+
+    console.log(`✅ [Function] Updated ${updatedCount} transactions and saved mapping`);
+    return {
+      success: true,
+      updated_count: updatedCount,
+      pattern: pattern,
+      category_id: category_id,
+      category_name: category_name
+    };
+  } catch (error) {
+    console.error('❌ [Function] Error updating transactions for merchant:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to update transactions for merchant', error);
   }
 });
 

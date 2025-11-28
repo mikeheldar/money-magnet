@@ -1308,6 +1308,53 @@ export default {
     }
   },
 
+  // Update all transactions for a merchant pattern and save mapping
+  async updateTransactionsForMerchant({ user_id, merchant, category_id, transaction_type }) {
+    try {
+      if (!user_id || !merchant || !category_id || !transaction_type) {
+        throw new Error('user_id, merchant, category_id, and transaction_type are required')
+      }
+
+      // Normalize merchant for pattern matching (same as N8N)
+      const normalize = (str) => {
+        if (!str) return ''
+        return str
+          .toUpperCase()
+          .replace(/[^A-Z0-9\s]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+
+      const pattern = normalize(merchant)
+
+      // Get category name
+      const categoryDoc = await getDoc(doc(db, 'categories', category_id))
+      if (!categoryDoc.exists()) {
+        throw new Error('Category not found')
+      }
+      const categoryName = categoryDoc.data().name
+
+      // Call Firebase function to update all transactions and save mapping
+      const { httpsCallable } = await import('firebase/functions')
+      const { getFunctions } = await import('firebase/functions')
+      const functions = getFunctions()
+      const updateTransactionsForMerchantFn = httpsCallable(functions, 'updateTransactionsForMerchant')
+
+      const result = await updateTransactionsForMerchantFn({
+        user_id,
+        merchant,
+        pattern,
+        category_id,
+        category_name: categoryName,
+        transaction_type
+      })
+
+      return result.data
+    } catch (error) {
+      throw new Error(`Failed to update transactions for merchant: ${error.message}`)
+    }
+  },
+
   // Admin: Batch categorize transactions via N8N
   async categorizeTransactionsBatch(transactions) {
     try {
