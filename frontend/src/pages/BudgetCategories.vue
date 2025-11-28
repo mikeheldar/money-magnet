@@ -899,17 +899,33 @@ export default defineComponent({
     }
 
     const deleteCategory = async (id) => {
+      // Get child categories to show count in confirmation
+      const childCategories = getCategoriesForGroup(id)
+      const childCount = childCategories.length
+      
+      const message = childCount > 0
+        ? `Are you sure you want to delete this category group? This will also delete all ${childCount} categor${childCount === 1 ? 'y' : 'ies'} in this group. This action cannot be undone.`
+        : 'Are you sure you want to delete this category group? This action cannot be undone.'
+      
       $q.dialog({
-        title: 'Confirm',
-        message: 'Are you sure you want to delete this category group? Categories in this group will become uncategorized.',
+        title: 'Confirm Delete',
+        message: message,
         cancel: true,
         persistent: true
       }).onOk(async () => {
         try {
+          // Delete all child categories first
+          if (childCount > 0) {
+            const deletePromises = childCategories.map(cat => firebaseApi.deleteCategory(cat.id))
+            await Promise.all(deletePromises)
+          }
+          
+          // Then delete the group
           await firebaseApi.deleteCategory(id)
+          
           $q.notify({
             type: 'positive',
-            message: 'Category group deleted'
+            message: `Category group and ${childCount} categor${childCount === 1 ? 'y' : 'ies'} deleted successfully`
           })
           await loadCategories()
         } catch (err) {
