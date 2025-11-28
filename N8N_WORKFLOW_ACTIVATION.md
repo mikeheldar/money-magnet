@@ -81,3 +81,4 @@ After activating:
 - Verify the webhook URL in Firebase logs matches your N8N webhook URL
 - Make sure you're creating transactions WITHOUT a category_id
 
+

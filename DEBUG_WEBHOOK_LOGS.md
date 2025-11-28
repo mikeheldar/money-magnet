@@ -121,3 +121,4 @@ If everything works, you'll see:
    - Frontend → Firebase Function → N8N → Response
 4. Check each step for errors
 
+

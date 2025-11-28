@@ -87,3 +87,4 @@ Click "Active" toggle in N8N to activate both workflows.
 
 For detailed setup, see `N8N_SETUP.md`.
 
+

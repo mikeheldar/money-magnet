@@ -455,3 +455,4 @@ db.collection('category_mappings')
 - Category mappings are user-specific (isolated by `user_id`)
 - Never expose API keys in workflow code (use environment variables)
 
+

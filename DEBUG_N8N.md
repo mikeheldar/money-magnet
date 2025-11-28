@@ -104,3 +104,4 @@ Look for:
 4. Check N8N execution logs for errors
 5. Check Firebase Function logs for errors
 
+

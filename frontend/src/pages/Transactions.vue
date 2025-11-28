@@ -39,6 +39,13 @@
                   @click="showAddRow = true"
                   :disable="showAddRow"
                 />
+                <q-btn
+                  :color="showUncategorized ? 'accent' : 'grey'"
+                  :outline="!showUncategorized"
+                  icon="category"
+                  label="Uncategorized"
+                  @click="showUncategorized = !showUncategorized"
+                />
                 <q-space />
                 <q-input
                   v-model="filter"
@@ -133,7 +140,22 @@
                       clearable
                       emit-value
                       map-options
-                    />
+                    >
+                      <template v-slot:option="scope">
+                        <q-item v-bind="scope.itemProps">
+                          <q-item-section avatar v-if="getCategoryIcon(scope.opt.id)">
+                            <q-icon 
+                              :name="getCategoryIcon(scope.opt.id).name"
+                              :style="{ color: getCategoryIcon(scope.opt.id).color }"
+                              size="18px"
+                            />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>{{ scope.opt.name }}</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                    </q-select>
                   </q-td>
                   <q-td class="actions-cell">
                     <div class="row items-center q-gutter-xs">
@@ -172,7 +194,9 @@
                   />
                 </q-td>
                 <q-td v-else>
-                  {{ formatDate(props.row.date) }}
+                  <span :title="getFullDateTime(props.row)">
+                    {{ formatDate(props.row.date) }}
+                  </span>
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
@@ -263,6 +287,13 @@
                 </q-td>
                 <q-td v-else class="category-cell">
                   <div class="row items-center no-wrap">
+                    <q-icon 
+                      v-if="getCategoryIcon(props.row.category_id)"
+                      :name="getCategoryIcon(props.row.category_id).name"
+                      :style="{ color: getCategoryIcon(props.row.category_id).color }"
+                      size="18px"
+                      class="q-mr-xs"
+                    />
                     <q-select
                       :model-value="props.row.category_id"
                       @update:model-value="(val) => onCategoryChange(props.row, val)"
@@ -276,7 +307,22 @@
                       map-options
                       style="min-width: 150px;"
                       :loading="categoryUpdating[props.row.id]"
-                    />
+                    >
+                      <template v-slot:option="scope">
+                        <q-item v-bind="scope.itemProps">
+                          <q-item-section avatar v-if="getCategoryIcon(scope.opt.id)">
+                            <q-icon 
+                              :name="getCategoryIcon(scope.opt.id).name"
+                              :style="{ color: getCategoryIcon(scope.opt.id).color }"
+                              size="18px"
+                            />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>{{ scope.opt.name }}</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                    </q-select>
                     <q-icon 
                       v-if="props.row.category_source === 'ai'" 
                       name="auto_awesome" 
@@ -353,6 +399,7 @@ export default defineComponent({
     const showAddRow = ref(false)
     const editingId = ref(null)
     const categoryUpdating = ref({}) // Track which transactions are updating categories
+    const showUncategorized = ref(false)
     
     const filter = ref('')
     
@@ -693,6 +740,11 @@ export default defineComponent({
     const displayRows = computed(() => {
       let filtered = transactions.value
       
+      // Filter by uncategorized if enabled
+      if (showUncategorized.value) {
+        filtered = filtered.filter(t => !t.category_id)
+      }
+      
       if (filter.value) {
         const searchTerm = filter.value.toLowerCase()
         filtered = filtered.filter(t => {
@@ -710,6 +762,26 @@ export default defineComponent({
       
       return filtered
     })
+
+    const getCategoryIcon = (categoryId) => {
+      if (!categoryId) return null
+      const category = categories.value.find(c => c.id === categoryId)
+      if (!category || !category.icon) return null
+      return {
+        name: category.icon,
+        color: category.icon_color || '#757575'
+      }
+    }
+
+    const getFullDateTime = (transaction) => {
+      if (!transaction.date) return ''
+      const date = new Date(transaction.date)
+      if (transaction.created_at && transaction.created_at.toDate) {
+        const created = transaction.created_at.toDate()
+        return created.toLocaleString()
+      }
+      return date.toLocaleString()
+    }
 
     const formatCurrency = (value) => {
       return Number(value || 0).toLocaleString('en-US', {
@@ -1013,7 +1085,10 @@ export default defineComponent({
       formatDate,
       getCategoryName,
       getCategoryOptionsForType,
+      getCategoryIcon,
+      getFullDateTime,
       categoryUpdating,
+      showUncategorized,
       onCategoryChange,
       loadTransactions,
       loadCategories,

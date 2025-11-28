@@ -32,6 +32,40 @@
                 <q-tr key="add-category-row">
                   <q-td colspan="4">
                     <div class="row q-col-gutter-sm items-center q-pa-sm">
+                      <div class="col-2">
+                        <q-select
+                          v-model="editingCategory.icon"
+                          :options="categoryGroupIcons"
+                          option-label="label"
+                          option-value="name"
+                          emit-value
+                          map-options
+                          label="Icon"
+                          dense
+                          outlined
+                        >
+                          <template v-slot:option="scope">
+                            <q-item v-bind="scope.itemProps">
+                              <q-item-section avatar>
+                                <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
+                              </q-item-section>
+                              <q-item-section>
+                                <q-item-label>{{ scope.opt.label }}</q-item-label>
+                              </q-item-section>
+                            </q-item>
+                          </template>
+                          <template v-slot:selected>
+                            <q-icon 
+                              v-if="editingCategory.icon" 
+                              :name="editingCategory.icon" 
+                              :style="{ color: getIconColor(editingCategory.icon, 'group') }"
+                              size="20px"
+                              class="q-mr-xs"
+                            />
+                            <span v-else>Select Icon</span>
+                          </template>
+                        </q-select>
+                      </div>
                       <div class="col-3">
                         <q-input
                           v-model="editingCategory.name"
@@ -41,7 +75,7 @@
                           :rules="[val => !!val || 'Required']"
                         />
                       </div>
-                      <div class="col-3">
+                      <div class="col-2">
                         <q-select
                           v-model="editingCategory.type"
                           :options="['income', 'expense']"
@@ -51,7 +85,7 @@
                           :rules="[val => !!val || 'Required']"
                         />
                       </div>
-                      <div class="col-4">
+                      <div class="col-3">
                         <q-input
                           v-model="editingCategory.description"
                           label="Description"
@@ -85,7 +119,21 @@
               <q-tr v-if="props.row.isCategoryGroup" :key="`category-${props.row.id}`" class="bg-grey-2">
                 <q-td>
                   <div class="row items-center">
-                    <q-icon name="folder" class="q-mr-sm" />
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      size="sm"
+                      :icon="collapsedGroups[props.row.id] ? 'expand_more' : 'expand_less'"
+                      @click="toggleGroup(props.row.id)"
+                      class="q-mr-xs"
+                    />
+                    <q-icon 
+                      :name="props.row.icon || 'folder'" 
+                      :style="{ color: props.row.icon_color || '#757575' }"
+                      size="24px"
+                      class="q-mr-sm"
+                    />
                     <span class="text-weight-bold">{{ props.row.name }}</span>
                     <q-badge :color="props.row.type === 'income' ? 'positive' : 'negative'" class="q-ml-sm">
                       {{ props.row.type }}
@@ -129,7 +177,7 @@
               </q-tr>
 
               <!-- Category Rows (children of category group) -->
-              <template v-if="props.row.isCategoryGroup">
+              <template v-if="props.row.isCategoryGroup && !collapsedGroups[props.row.id]">
                 <q-tr
                   v-for="cat in getCategoriesForGroup(props.row.id)"
                   :key="`cat-${cat.id}`"
@@ -137,14 +185,52 @@
                 >
                   <q-td>
                     <div class="row items-center" style="padding-left: 2rem;">
-                      <q-icon name="label" class="q-mr-sm" size="sm" />
+                      <q-icon 
+                        :name="cat.icon || 'label'" 
+                        :style="{ color: cat.icon_color || '#757575' }"
+                        size="20px"
+                        class="q-mr-sm"
+                      />
                       <template v-if="editingCategoryId === cat.id">
-                        <q-input
-                          v-model="editingCategoryItem.name"
-                          dense
-                          outlined
-                          style="min-width: 150px;"
-                        />
+                        <div class="row q-gutter-xs items-center">
+                          <q-select
+                            v-model="editingCategoryItem.icon"
+                            :options="categoryIcons"
+                            option-label="label"
+                            option-value="name"
+                            emit-value
+                            map-options
+                            dense
+                            outlined
+                            style="min-width: 120px;"
+                          >
+                            <template v-slot:option="scope">
+                              <q-item v-bind="scope.itemProps">
+                                <q-item-section avatar>
+                                  <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="20px" />
+                                </q-item-section>
+                                <q-item-section>
+                                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                                </q-item-section>
+                              </q-item>
+                            </template>
+                            <template v-slot:selected>
+                              <q-icon 
+                                v-if="editingCategoryItem.icon" 
+                                :name="editingCategoryItem.icon" 
+                                :style="{ color: getIconColor(editingCategoryItem.icon, 'category') }"
+                                size="16px"
+                                class="q-mr-xs"
+                              />
+                            </template>
+                          </q-select>
+                          <q-input
+                            v-model="editingCategoryItem.name"
+                            dense
+                            outlined
+                            style="min-width: 150px;"
+                          />
+                        </div>
                       </template>
                       <template v-else>
                         {{ cat.name }}
@@ -206,9 +292,43 @@
                 </q-tr>
 
                 <!-- Add Category Row for this Group -->
-                <q-tr v-if="addingCategoryToGroupId === props.row.id" key="add-cat-row">
+                <q-tr v-if="addingCategoryToGroupId === props.row.id && !collapsedGroups[props.row.id]" key="add-cat-row">
                   <q-td colspan="4">
                     <div class="row q-col-gutter-sm items-center q-pa-sm" style="padding-left: 2rem;">
+                      <div class="col-2">
+                        <q-select
+                          v-model="newCategoryItem.icon"
+                          :options="categoryIcons"
+                          option-label="label"
+                          option-value="name"
+                          emit-value
+                          map-options
+                          label="Icon"
+                          dense
+                          outlined
+                        >
+                          <template v-slot:option="scope">
+                            <q-item v-bind="scope.itemProps">
+                              <q-item-section avatar>
+                                <q-icon :name="scope.opt.name" :style="{ color: scope.opt.color }" size="24px" />
+                              </q-item-section>
+                              <q-item-section>
+                                <q-item-label>{{ scope.opt.label }}</q-item-label>
+                              </q-item-section>
+                            </q-item>
+                          </template>
+                          <template v-slot:selected>
+                            <q-icon 
+                              v-if="newCategoryItem.icon" 
+                              :name="newCategoryItem.icon" 
+                              :style="{ color: getIconColor(newCategoryItem.icon, 'category') }"
+                              size="20px"
+                              class="q-mr-xs"
+                            />
+                            <span v-else>Select Icon</span>
+                          </template>
+                        </q-select>
+                      </div>
                       <div class="col-4">
                         <q-input
                           v-model="newCategoryItem.name"
@@ -218,7 +338,7 @@
                           :rules="[val => !!val || 'Required']"
                         />
                       </div>
-                      <div class="col-5">
+                      <div class="col-4">
                         <q-input
                           v-model="newCategoryItem.description"
                           label="Description"
@@ -259,6 +379,7 @@
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
+import { categoryIcons, categoryGroupIcons, getIconByName } from '../utils/category-icons'
 
 export default defineComponent({
   name: 'BudgetCategoriesPage',
@@ -270,12 +391,15 @@ export default defineComponent({
     const showAddCategory = ref(false)
     const addingCategoryToGroupId = ref(null)
     const editingCategoryId = ref(null)
+    const collapsedGroups = ref({})
     
     const editingCategory = ref({
       id: null,
       name: '',
       type: 'expense',
-      description: ''
+      description: '',
+      icon: null,
+      icon_color: null
     })
     
     const editingCategoryItem = ref({
@@ -283,15 +407,29 @@ export default defineComponent({
       name: '',
       description: '',
       parent_id: null,
-      type: 'expense'
+      type: 'expense',
+      icon: null,
+      icon_color: null
     })
 
     const newCategoryItem = ref({
       name: '',
       description: '',
       parent_id: null,
-      type: 'expense'
+      type: 'expense',
+      icon: null,
+      icon_color: null
     })
+
+    const toggleGroup = (groupId) => {
+      collapsedGroups.value[groupId] = !collapsedGroups.value[groupId]
+    }
+
+    const getIconColor = (iconName, type = 'category') => {
+      if (!iconName) return '#757575'
+      const icon = getIconByName(iconName)
+      return icon ? icon.color : '#757575'
+    }
 
     const columns = [
       { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
@@ -359,10 +497,14 @@ export default defineComponent({
 
       savingCategory.value = true
       try {
+        const categoryData = {
+          ...editingCategory.value,
+          icon_color: editingCategory.value.icon ? getIconColor(editingCategory.value.icon, 'group') : null
+        }
         if (editingCategory.value.id) {
-          await firebaseApi.updateCategory(editingCategory.value.id, editingCategory.value)
+          await firebaseApi.updateCategory(editingCategory.value.id, categoryData)
         } else {
-          await firebaseApi.createCategory(editingCategory.value)
+          await firebaseApi.createCategory(categoryData)
         }
         
         $q.notify({
@@ -387,7 +529,9 @@ export default defineComponent({
         id: category.id,
         name: category.name,
         type: category.type,
-        description: category.description || ''
+        description: category.description || '',
+        icon: category.icon || null,
+        icon_color: category.icon_color || null
       }
       showAddCategory.value = true
     }
@@ -398,7 +542,9 @@ export default defineComponent({
         id: null,
         name: '',
         type: 'expense',
-        description: ''
+        description: '',
+        icon: null,
+        icon_color: null
       }
     }
 
@@ -441,7 +587,9 @@ export default defineComponent({
         name: '',
         description: '',
         parent_id: null,
-        type: 'expense'
+        type: 'expense',
+        icon: null,
+        icon_color: null
       }
     }
 
@@ -460,7 +608,9 @@ export default defineComponent({
           name: newCategoryItem.value.name,
           description: newCategoryItem.value.description || '',
           parent_id: groupId,
-          type: type
+          type: type,
+          icon: newCategoryItem.value.icon || null,
+          icon_color: newCategoryItem.value.icon ? getIconColor(newCategoryItem.value.icon, 'category') : null
         })
         
         $q.notify({
@@ -487,7 +637,9 @@ export default defineComponent({
         name: category.name,
         description: category.description || '',
         parent_id: category.parent_id,
-        type: category.type
+        type: category.type,
+        icon: category.icon || null,
+        icon_color: category.icon_color || null
       }
     }
 
@@ -498,7 +650,9 @@ export default defineComponent({
         name: '',
         description: '',
         parent_id: null,
-        type: 'expense'
+        type: 'expense',
+        icon: null,
+        icon_color: null
       }
     }
 
@@ -509,7 +663,9 @@ export default defineComponent({
           name: editingCategoryItem.value.name,
           description: editingCategoryItem.value.description || '',
           parent_id: editingCategoryItem.value.parent_id,
-          type: editingCategoryItem.value.type
+          type: editingCategoryItem.value.type,
+          icon: editingCategoryItem.value.icon || null,
+          icon_color: editingCategoryItem.value.icon ? getIconColor(editingCategoryItem.value.icon, 'category') : null
         })
         
         $q.notify({
@@ -566,9 +722,14 @@ export default defineComponent({
       editingCategory,
       editingCategoryItem,
       newCategoryItem,
+      collapsedGroups,
+      categoryIcons,
+      categoryGroupIcons,
       columns,
       displayRows,
       getCategoriesForGroup,
+      toggleGroup,
+      getIconColor,
       loadCategories,
       onSaveCategory,
       editCategory,
@@ -595,4 +756,5 @@ export default defineComponent({
   background-color: #f5f5f5;
 }
 </style>
+
 
