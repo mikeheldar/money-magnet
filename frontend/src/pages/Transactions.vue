@@ -261,9 +261,22 @@
                     map-options
                   />
                 </q-td>
-                <q-td v-else class="category-cell" style="cursor: pointer;" @click="startEdit(props.row)">
+                <q-td v-else class="category-cell">
                   <div class="row items-center no-wrap">
-                    <span class="text-ellipsis">{{ props.row.category_name || '-' }}</span>
+                    <q-select
+                      :model-value="props.row.category_id"
+                      @update:model-value="(val) => onCategoryChange(props.row, val)"
+                      :options="getCategoryOptionsForType(props.row.type)"
+                      option-label="name"
+                      option-value="id"
+                      dense
+                      outlined
+                      clearable
+                      emit-value
+                      map-options
+                      style="min-width: 150px;"
+                      :loading="categoryUpdating[props.row.id]"
+                    />
                     <q-icon 
                       v-if="props.row.category_source === 'ai'" 
                       name="auto_awesome" 
@@ -273,18 +286,7 @@
                     >
                       <q-tooltip>Auto-categorized by AI</q-tooltip>
                     </q-icon>
-                    <q-icon 
-                      name="edit" 
-                      color="grey-6"
-                      size="14px"
-                      class="q-ml-xs"
-                    >
-                      <q-tooltip>Click to edit category</q-tooltip>
-                    </q-icon>
                   </div>
-                  <q-tooltip v-if="props.row.category_name && props.row.category_name.length > 15">
-                    {{ props.row.category_name }}
-                  </q-tooltip>
                 </q-td>
 
                 <q-td>
@@ -334,7 +336,8 @@
 import { defineComponent, ref, onMounted, watch, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
-import { auth } from '../config/firebase'
+import { auth, db } from '../config/firebase'
+import { collection, addDoc, query, where, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 
 export default defineComponent({
   name: 'TransactionsPage',
@@ -349,6 +352,7 @@ export default defineComponent({
     const updating = ref(false)
     const showAddRow = ref(false)
     const editingId = ref(null)
+    const categoryUpdating = ref({}) // Track which transactions are updating categories
     
     const filter = ref('')
     
@@ -477,10 +481,224 @@ export default defineComponent({
         })
     })
     
+    const getCategoryOptionsForType = (type) => {
+      // Get category options for a specific transaction type
+      return categories.value
+        .filter(c => c.type === type)
+        .map(c => {
+          const parent = c.parent_id ? categories.value.find(p => p.id === c.parent_id) : null
+          return {
+            id: c.id,
+            name: parent ? `${parent.name} - ${c.name}` : c.name,
+            type: c.type
+          }
+        })
+    }
+    
     const getCategoryName = (categoryId) => {
       if (!categoryId) return null
       const category = categories.value.find(c => c.id === categoryId)
       return category ? category.name : null
+    }
+
+    const normalize = (str) => {
+      if (!str) return ''
+      return str
+        .toUpperCase()
+        .replace(/[^A-Z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    const onCategoryChange = async (transaction, newCategoryId) => {
+      // If category is cleared, just update the transaction
+      if (!newCategoryId) {
+        try {
+          categoryUpdating.value[transaction.id] = true
+          const updateData = {
+            category_id: null,
+            category_source: null,
+            category_suggested: null,
+            category_confidence: null
+          }
+          await firebaseApi.updateTransaction(transaction.id, updateData)
+          await loadTransactions()
+          $q.notify({
+            type: 'positive',
+            message: 'Category removed'
+          })
+        } catch (error) {
+          $q.notify({
+            type: 'negative',
+            message: `Failed to update category: ${error.message}`
+          })
+        } finally {
+          categoryUpdating.value[transaction.id] = false
+        }
+        return
+      }
+
+      const oldCategoryId = transaction.category_id
+      const categoryName = getCategoryName(newCategoryId)
+      const hasMerchant = transaction.merchant && transaction.merchant.trim().length > 0
+
+      // Show dialog to ask about learning the rule
+      if (hasMerchant) {
+        // First dialog: Ask if we should learn this rule
+        const shouldLearn = await new Promise((resolve) => {
+          $q.dialog({
+            title: 'Learn This Category Rule?',
+            message: `Should future transactions from "${transaction.merchant}" automatically be categorized as "${categoryName}"?`,
+            cancel: true,
+            persistent: true,
+            ok: {
+              label: 'Yes, Learn This Rule',
+              color: 'primary'
+            },
+            cancel: {
+              label: 'Just This Transaction',
+              flat: true
+            }
+          }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+        })
+
+        let shouldUpdateHistorical = false
+
+        if (shouldLearn) {
+          // Second dialog: Ask if we should update historical transactions
+          shouldUpdateHistorical = await new Promise((resolve) => {
+            $q.dialog({
+              title: 'Update Historical Transactions?',
+              message: `Do you want to update all past transactions from "${transaction.merchant}" to use this category?`,
+              cancel: true,
+              persistent: true,
+              ok: {
+                label: 'Yes, Update All',
+                color: 'primary'
+              },
+              cancel: {
+                label: 'No, Just Future',
+                flat: true
+              }
+            }).onOk(() => resolve(true)).onCancel(() => resolve(false))
+          })
+        }
+
+        const result = {
+          learn: shouldLearn,
+          updateHistorical: shouldUpdateHistorical
+        }
+
+        if (result.learn) {
+          // Learn the rule and optionally update historical transactions
+          try {
+            categoryUpdating.value[transaction.id] = true
+            
+            const normalizedMerchant = normalize(transaction.merchant)
+            
+            if (result.updateHistorical) {
+              // Update all historical transactions and learn the rule
+              await firebaseApi.updateTransactionsForMerchant({
+                user_id: auth.currentUser?.uid,
+                merchant: transaction.merchant,
+                pattern: normalizedMerchant,
+                category_id: newCategoryId,
+                category_name: categoryName,
+                transaction_type: transaction.type
+              })
+              
+              $q.notify({
+                type: 'positive',
+                message: `Updated all transactions from "${transaction.merchant}" and learned this pattern`,
+                timeout: 3000
+              })
+            } else {
+              // Just learn the rule for future transactions
+              // Update this transaction first
+              const updateData = {
+                category_id: newCategoryId,
+                category_source: null,
+                category_suggested: null,
+                category_confidence: null
+              }
+              await firebaseApi.updateTransaction(transaction.id, updateData)
+              
+              // Save the mapping for future transactions (without updating historical)
+              const mappingsRef = collection(db, 'category_mappings')
+              const existing = await getDocs(query(
+                mappingsRef,
+                where('user_id', '==', auth.currentUser?.uid),
+                where('pattern', '==', normalizedMerchant),
+                where('transaction_type', '==', transaction.type)
+              ))
+              
+              if (!existing.empty) {
+                await updateDoc(doc(db, 'category_mappings', existing.docs[0].id), {
+                  category_id: newCategoryId,
+                  category_name: categoryName,
+                  confidence: 1.0,
+                  match_type: 'exact',
+                  updated_at: serverTimestamp()
+                })
+              } else {
+                await addDoc(mappingsRef, {
+                  user_id: auth.currentUser?.uid,
+                  pattern: normalizedMerchant,
+                  category_id: newCategoryId,
+                  category_name: categoryName,
+                  transaction_type: transaction.type,
+                  match_type: 'exact',
+                  confidence: 1.0,
+                  usage_count: 1,
+                  created_at: serverTimestamp(),
+                  updated_at: serverTimestamp()
+                })
+              }
+              
+              $q.notify({
+                type: 'positive',
+                message: `Category updated. Future transactions from "${transaction.merchant}" will use this category.`,
+                timeout: 3000
+              })
+            }
+            
+            await loadTransactions()
+          } catch (error) {
+            console.error('Error updating category:', error)
+            $q.notify({
+              type: 'negative',
+              message: `Failed to update: ${error.message}`
+            })
+          } finally {
+            categoryUpdating.value[transaction.id] = false
+          }
+          return
+        }
+      }
+
+      // Just update this transaction
+      try {
+        categoryUpdating.value[transaction.id] = true
+        const updateData = {
+          category_id: newCategoryId,
+          category_source: null,
+          category_suggested: null,
+          category_confidence: null
+        }
+        await firebaseApi.updateTransaction(transaction.id, updateData)
+        await loadTransactions()
+        $q.notify({
+          type: 'positive',
+          message: 'Category updated'
+        })
+      } catch (error) {
+        $q.notify({
+          type: 'negative',
+          message: `Failed to update category: ${error.message}`
+        })
+      } finally {
+        categoryUpdating.value[transaction.id] = false
+      }
     }
 
     const displayRows = computed(() => {
@@ -805,6 +1023,9 @@ export default defineComponent({
       formatCurrency,
       formatDate,
       getCategoryName,
+      getCategoryOptionsForType,
+      categoryUpdating,
+      onCategoryChange,
       loadTransactions,
       loadCategories,
       cancelAdd,
