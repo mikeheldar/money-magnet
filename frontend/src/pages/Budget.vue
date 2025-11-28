@@ -734,8 +734,9 @@ export default defineComponent({
       if (hideZeroActuals.value) {
         return items.filter(item => {
           if (item.isGroup && item.children) {
-            // For groups, check if any child has actuals > 0, or group itself has actuals > 0
-            const hasChildActuals = item.children.some(child => (child.actual || 0) > 0)
+            // For groups, filter children first, then check if group or any remaining child has actuals > 0
+            item.children = item.children.filter(child => (child.actual || 0) > 0)
+            const hasChildActuals = item.children.length > 0 && item.children.some(child => (child.actual || 0) > 0)
             return (item.actual || 0) > 0 || hasChildActuals
           }
           return (item.actual || 0) > 0
@@ -845,8 +846,9 @@ export default defineComponent({
       if (hideZeroActuals.value) {
         return items.filter(item => {
           if (item.isGroup && item.children) {
-            // For groups, check if any child has actuals > 0, or group itself has actuals > 0
-            const hasChildActuals = item.children.some(child => (child.actual || 0) > 0)
+            // For groups, filter children first, then check if group or any remaining child has actuals > 0
+            item.children = item.children.filter(child => (child.actual || 0) > 0)
+            const hasChildActuals = item.children.length > 0 && item.children.some(child => (child.actual || 0) > 0)
             return (item.actual || 0) > 0 || hasChildActuals
           }
           return (item.actual || 0) > 0
