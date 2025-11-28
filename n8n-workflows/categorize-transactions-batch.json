@@ -1,29 +1,39 @@
 {
-  "name": "Categorize Transaction",
+  "name": "Categorize Transactions Batch",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "categorize-transaction",
+        "path": "categorize-transactions-batch",
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "webhook-categorize",
+      "id": "webhook-batch",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300],
-      "webhookId": "categorize-transaction"
+      "webhookId": "categorize-transactions-batch"
     },
     {
       "parameters": {
-        "jsCode": "// Normalize merchant/description for matching\n// Handle webhook data - it may be in body or at root level\nconst webhookData = $input.item.json.body || $input.item.json;\nconst description = webhookData.description || '';\nconst merchant = webhookData.merchant || '';\nconst user_id = webhookData.user_id || '';\nconst type = webhookData.type || '';\nconst amount = webhookData.amount || 0;\nconst date = webhookData.date || '';\nconst transaction_id = webhookData.transaction_id || '';\n\n// Normalize: uppercase, remove special chars\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizedMerchant = normalize(merchant);\nconst normalizedDescription = normalize(description);\nconst pattern = normalizedMerchant || normalizedDescription;\n\n// Return all fields needed for downstream nodes\nreturn {\n  user_id: user_id,\n  description: description,\n  merchant: merchant,\n  type: type,\n  amount: amount,\n  date: date,\n  transaction_id: transaction_id,\n  pattern: pattern,\n  normalized_merchant: normalizedMerchant,\n  normalized_description: normalizedDescription\n};"
+        "jsCode": "// Split batch into individual transactions\n// Handle webhook data - it may be in body or at root level\nconst webhookData = $input.item.json.body || $input.item.json;\nconst transactions = webhookData.transactions || [];\n\nif (!Array.isArray(transactions) || transactions.length === 0) {\n  return [];\n}\n\n// Return each transaction as a separate item\nreturn transactions.map(tx => ({\n  transaction_id: tx.transaction_id || tx.id || '',\n  user_id: tx.user_id || '',\n  description: tx.description || '',\n  merchant: tx.merchant || '',\n  type: tx.type || 'expense',\n  amount: tx.amount || 0,\n  date: tx.date || ''\n}));"
+      },
+      "id": "split-batch",
+      "name": "Split Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize merchant/description for matching\nconst input = $input.item.json;\nconst description = input.description || '';\nconst merchant = input.merchant || '';\nconst user_id = input.user_id || '';\nconst type = input.type || '';\nconst amount = input.amount || 0;\nconst date = input.date || '';\nconst transaction_id = input.transaction_id || '';\n\n// Normalize: uppercase, remove special chars\nconst normalize = (str) => {\n  if (!str) return '';\n  return str\n    .toUpperCase()\n    .replace(/[^A-Z0-9\\s]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizedMerchant = normalize(merchant);\nconst normalizedDescription = normalize(description);\nconst pattern = normalizedMerchant || normalizedDescription;\n\n// Return all fields needed for downstream nodes\nreturn {\n  user_id: user_id,\n  description: description,\n  merchant: merchant,\n  type: type,\n  amount: amount,\n  date: date,\n  transaction_id: transaction_id,\n  pattern: pattern,\n  normalized_merchant: normalizedMerchant,\n  normalized_description: normalizedDescription\n};"
       },
       "id": "normalize-pattern",
       "name": "Normalize Pattern",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [450, 300]
+      "position": [650, 300]
     },
     {
       "parameters": {
@@ -33,7 +43,7 @@
       "name": "Check Learned Mapping",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [650, 300]
+      "position": [850, 300]
     },
     {
       "parameters": {
@@ -62,7 +72,7 @@
       "name": "Mapping Found?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [850, 300]
+      "position": [1050, 300]
     },
     {
       "parameters": {
@@ -100,7 +110,7 @@
       "name": "Use Learned Category",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.2,
-      "position": [1050, 200]
+      "position": [1250, 200]
     },
     {
       "parameters": {
@@ -110,7 +120,7 @@
       "name": "AI Categorization",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1050, 400]
+      "position": [1450, 400]
     },
     {
       "parameters": {
@@ -126,7 +136,7 @@
       "name": "Get User Categories",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1250, 400]
+      "position": [1650, 400]
     },
     {
       "parameters": {
@@ -136,7 +146,7 @@
       "name": "Match Category",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1450, 400]
+      "position": [1850, 400]
     },
     {
       "parameters": {
@@ -147,22 +157,25 @@
       "name": "Merge Results",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
-      "position": [1650, 300]
+      "position": [2050, 300]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({\n  category_id: $json.category_id || null,\n  category_name: $json.category_name || null,\n  confidence: $json.confidence || 0.8,\n  source: $json.source || 'ai'\n}) }}"
+        "responseBody": "={{ JSON.stringify({\n  results: $input.all().map(item => ({\n    transaction_id: item.json.transaction_id || item.json.id || null,\n    category_id: item.json.category_id || null,\n    category_name: item.json.category_name || null,\n    confidence: item.json.confidence || 0.8,\n    source: item.json.source || 'ai'\n  }))\n}) }}"
       },
       "id": "respond-webhook",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1850, 300]
+      "position": [2250, 300]
     }
   ],
   "connections": {
     "Webhook": {
+      "main": [[{"node": "Split Batch", "type": "main", "index": 0}]]
+    },
+    "Split Batch": {
       "main": [[{"node": "Normalize Pattern", "type": "main", "index": 0}]]
     },
     "Normalize Pattern": {

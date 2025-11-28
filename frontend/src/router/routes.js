@@ -14,7 +14,8 @@ const routes = [
       { path: 'trading/insights', component: () => import('pages/trading/Insights.vue') },
       { path: 'trading/automation', component: () => import('pages/trading/Automation.vue') },
       { path: 'trading/analysis', component: () => import('pages/trading/Analysis.vue') },
-      { path: 'trading/portfolio', component: () => import('pages/trading/Portfolio.vue') }
+      { path: 'trading/portfolio', component: () => import('pages/trading/Portfolio.vue') },
+      { path: 'admin', component: () => import('pages/Admin.vue') }
     ]
   },
   {

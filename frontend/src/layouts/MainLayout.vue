@@ -201,6 +201,30 @@
           header
           class="text-grey-8"
         >
+          Admin
+        </q-item-label>
+
+        <q-item
+          clickable
+          v-ripple
+          to="/admin"
+        >
+          <q-item-section avatar>
+            <q-icon name="admin_panel_settings" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Admin Tools</q-item-label>
+            <q-item-label caption>Diagnostics & Batch Operations</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-separator spaced />
+
+        <q-item-label
+          header
+          class="text-grey-8"
+        >
           Settings
         </q-item-label>
 

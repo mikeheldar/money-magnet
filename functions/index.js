@@ -613,15 +613,53 @@ exports.onTransactionCreated = onDocumentCreated(
       return null;
     }
 
+    // Extract merchant - use merchant field if available, otherwise try to extract from description
+    let merchant = transaction.merchant || '';
+    
+    // If merchant is empty but description exists, try to extract merchant name from description
+    if (!merchant && transaction.description) {
+      const description = transaction.description.trim();
+      
+      // Common patterns: "MERCHANT NAME", "MERCHANT -", "MERCHANT #", etc.
+      // Try to extract the first part before common separators
+      const merchantPatterns = [
+        /^([A-Z][A-Z0-9\s&]+?)\s*[-#]/,  // "MCDONALDS #123" or "WALMART -"
+        /^([A-Z][A-Z0-9\s&]+?)\s+\d/,     // "MCDONALDS 123" (merchant followed by numbers)
+        /^([A-Z][A-Z\s&]+?)(?:\s+\d|$)/,  // "MCDONALDS" or "MCDONALDS 123"
+      ];
+      
+      for (const pattern of merchantPatterns) {
+        const match = description.match(pattern);
+        if (match && match[1]) {
+          merchant = match[1].trim();
+          // Only use if it looks like a merchant name (not too long, not all numbers)
+          if (merchant.length > 2 && merchant.length < 50 && !/^\d+$/.test(merchant)) {
+            break;
+          }
+        }
+      }
+      
+      // If no pattern matched but description is short and looks like a merchant name, use it
+      if (!merchant && description.length > 2 && description.length < 50 && 
+          /^[A-Z]/.test(description) && !/^\d+/.test(description)) {
+        merchant = description;
+      }
+    }
+
     const payload = {
       transaction_id: transactionId,
       user_id: transaction.user_id,
       description: transaction.description || '',
-      merchant: transaction.merchant || '',
+      merchant: merchant,
       amount: transaction.amount,
       type: transaction.type,
       date: transaction.date,
     };
+    
+    console.log('🔵 [Function] Merchant extraction:');
+    console.log('  - Original merchant:', transaction.merchant || '(empty)');
+    console.log('  - Description:', transaction.description || '(empty)');
+    console.log('  - Extracted merchant:', merchant || '(empty)');
 
     console.log('🔵 [Function] ============================================');
     console.log('🔵 [Function] Calling N8N webhook...');
@@ -762,15 +800,20 @@ exports.onTransactionUpdated = onDocumentUpdated(
 );
 
 // Helper function: Check if a category mapping exists
-exports.checkCategoryMapping = onCall(async (request) => {
-  if (!request.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
-  }
-
-  const { user_id, pattern, transaction_type } = request.data;
-
-  if (!pattern || !transaction_type) {
-    throw new functions.https.HttpsError('invalid-argument', 'pattern and transaction_type are required');
+// HTTP version for N8N (no auth required, user_id passed in body)
+// This allows N8N to call it without Firebase Auth
+exports.checkCategoryMappingHttp = onCall(async (request) => {
+  // Allow unauthenticated calls from N8N (user_id is in the request)
+  // Extract data from either request.data (callable format) or request.body (HTTP format)
+  const requestData = request.data || {};
+  const { user_id, pattern, transaction_type } = requestData;
+  
+  console.log('🔵 [Function] checkCategoryMappingHttp called');
+  console.log('🔵 [Function] Request data:', JSON.stringify(requestData, null, 2));
+  
+  if (!user_id || !pattern || !transaction_type) {
+    console.error('❌ [Function] Missing required fields');
+    throw new functions.https.HttpsError('invalid-argument', 'user_id, pattern, and transaction_type are required');
   }
 
   try {
@@ -792,22 +835,94 @@ exports.checkCategoryMapping = onCall(async (request) => {
         last_used: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      return {
+      const result = {
         mapping_found: true,
         category_id: mapping.category_id,
         category_name: mapping.category_name,
         confidence: mapping.confidence || 1.0,
       };
+      
+      console.log('✅ [Function] Mapping found:', result);
+      return result;
     }
 
+    console.log('ℹ️ [Function] No mapping found');
     return { mapping_found: false };
   } catch (error) {
-    console.error('Error checking category mapping:', error);
+    console.error('❌ [Function] Error checking category mapping:', error);
     throw new functions.https.HttpsError('internal', 'Failed to check category mapping', error);
   }
 });
 
-// Helper function: Save a learned category mapping
+// HTTP version for N8N (no auth required)
+exports.saveCategoryMappingHttp = onCall(async (request) => {
+  // Allow unauthenticated calls from N8N
+  const requestData = request.data || {};
+  const { user_id, pattern, category_id, transaction_type, match_type, confidence } = requestData;
+  
+  console.log('🔵 [Function] saveCategoryMappingHttp called');
+  console.log('🔵 [Function] Request data:', JSON.stringify(requestData, null, 2));
+  
+  if (!user_id || !pattern || !category_id || !transaction_type) {
+    throw new functions.https.HttpsError('invalid-argument', 'user_id, pattern, category_id, and transaction_type are required');
+  }
+
+  try {
+    // Get category name
+    const categoryDoc = await admin.firestore().collection('categories').doc(category_id).get();
+
+    if (!categoryDoc.exists()) {
+      throw new functions.https.HttpsError('not-found', 'Category not found');
+    }
+
+    const categoryName = categoryDoc.data().name;
+
+    // Check if mapping already exists
+    const mappingsRef = admin.firestore().collection('category_mappings');
+    const existing = await mappingsRef
+      .where('user_id', '==', user_id)
+      .where('pattern', '==', pattern)
+      .where('transaction_type', '==', transaction_type)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      // Update existing mapping
+      await existing.docs[0].ref.update({
+        category_id: category_id,
+        category_name: categoryName,
+        confidence: confidence || 1.0,
+        match_type: match_type || 'description',
+        usage_count: admin.firestore.FieldValue.increment(1),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('✅ [Function] Updated existing category mapping');
+    } else {
+      // Create new mapping
+      await mappingsRef.add({
+        user_id: user_id,
+        pattern: pattern,
+        category_id: category_id,
+        category_name: categoryName,
+        transaction_type: transaction_type,
+        match_type: match_type || 'description',
+        confidence: confidence || 1.0,
+        usage_count: 1,
+        last_used: admin.firestore.FieldValue.serverTimestamp(),
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('✅ [Function] Created new category mapping');
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('❌ [Function] Error saving category mapping:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to save category mapping', error);
+  }
+});
+
+// Helper function: Save a learned category mapping (authenticated version)
 exports.saveCategoryMapping = onCall(async (request) => {
   if (!request.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
@@ -874,7 +989,71 @@ exports.saveCategoryMapping = onCall(async (request) => {
   }
 });
 
-// Helper function: Get user's categories
+// HTTP version for N8N (no auth required)
+exports.getUserCategoriesHttp = onCall(async (request) => {
+  // Allow unauthenticated calls from N8N
+  const requestData = request.data || {};
+  let { user_id, type, suggested_category } = requestData;
+  
+  console.log('🔵 [Function] getUserCategoriesHttp called');
+  console.log('🔵 [Function] Request data:', JSON.stringify(requestData, null, 2));
+  
+  // Strip '=' prefix if present (N8N expression evaluation issue)
+  if (user_id && typeof user_id === 'string' && user_id.startsWith('=')) {
+    console.log('⚠️ [Function] Stripping = prefix from user_id');
+    user_id = user_id.substring(1);
+  }
+  if (type && typeof type === 'string' && type.startsWith('=')) {
+    console.log('⚠️ [Function] Stripping = prefix from type');
+    type = type.substring(1);
+  }
+  if (suggested_category && typeof suggested_category === 'string' && suggested_category.startsWith('=')) {
+    console.log('⚠️ [Function] Stripping = prefix from suggested_category');
+    suggested_category = suggested_category.substring(1);
+  }
+  
+  if (!user_id) {
+    throw new functions.https.HttpsError('invalid-argument', 'user_id is required');
+  }
+
+  try {
+    const categoriesRef = admin.firestore().collection('categories');
+    let query = categoriesRef.where('user_id', '==', user_id);
+
+    if (type) {
+      query = query.where('type', '==', type);
+    }
+
+    const snapshot = await query.get();
+
+    const categories = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    console.log('✅ [Function] Found categories:', categories.length);
+    if (categories.length > 0) {
+      console.log('✅ [Function] Category names:', categories.map(c => c.name).join(', '));
+    }
+    if (suggested_category) {
+      console.log('✅ [Function] Suggested category:', suggested_category);
+    }
+    
+    // Return suggested_category so it's preserved through the HTTP request
+    const result = { 
+      categories,
+      suggested_category: suggested_category || null
+    };
+    
+    console.log('✅ [Function] Returning:', JSON.stringify(result, null, 2));
+    return result;
+  } catch (error) {
+    console.error('❌ [Function] Error getting user categories:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to get user categories', error);
+  }
+});
+
+// Helper function: Get user's categories (authenticated version)
 exports.getUserCategories = onCall(async (request) => {
   if (!request.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');

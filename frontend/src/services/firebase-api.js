@@ -1281,6 +1281,83 @@ export default {
     } catch (error) {
       throw new Error(`Failed to get financial news: ${error.message}`)
     }
+  },
+
+  // Admin: Get uncategorized transactions
+  async getUncategorizedTransactions() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const q = query(
+        collection(db, 'transactions'),
+        where('user_id', '==', userId),
+        where('category_id', '==', null)
+      )
+
+      const snapshot = await getDocs(q)
+      const transactions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+
+      return transactions
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getUncategorizedTransactions')
+      throw new Error(`Failed to get uncategorized transactions: ${errorMsg}`)
+    }
+  },
+
+  // Admin: Batch categorize transactions via N8N
+  async categorizeTransactionsBatch(transactions) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      if (!Array.isArray(transactions) || transactions.length === 0) {
+        throw new Error('Transactions array is required and must not be empty')
+      }
+
+      // Prepare transactions for N8N (only send necessary fields)
+      const payload = transactions.map(tx => ({
+        transaction_id: tx.id || tx.transaction_id,
+        user_id: tx.user_id || userId,
+        description: tx.description || '',
+        merchant: tx.merchant || '',
+        type: tx.type || 'expense',
+        amount: tx.amount || 0,
+        date: tx.date || ''
+      }))
+
+      // Get N8N webhook URL from Firebase config
+      const { httpsCallable } = await import('firebase/functions')
+      const { getFunctions } = await import('firebase/functions')
+      const functions = getFunctions()
+      
+      // Call Firebase function that will forward to N8N
+      // For now, we'll call N8N directly from frontend
+      // In production, you might want a Firebase function to handle this
+      
+      // Get N8N webhook URL - you'll need to configure this
+      const N8N_WEBHOOK_URL = 'https://money-magnet-cf5a4.app.n8n.cloud/webhook/categorize-transactions-batch'
+      
+      const response = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ transactions: payload })
+      })
+
+      if (!response.ok) {
+        throw new Error(`N8N request failed: ${response.status} ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      return result
+    } catch (error) {
+      throw new Error(`Failed to categorize transactions batch: ${error.message}`)
+    }
   }
 }
 
