@@ -337,6 +337,24 @@
                           </q-item-section>
                         </q-item>
                       </template>
+                      <template v-slot:selected>
+                        <div class="row items-center no-wrap">
+                          <q-icon 
+                            v-if="getCategoryIcon(props.row.category_id)" 
+                            :name="getCategoryIcon(props.row.category_id).name" 
+                            :style="{ color: getCategoryIcon(props.row.category_id).color }"
+                            size="18px"
+                            class="q-mr-xs"
+                          />
+                          <span v-if="props.row.category_name || getCategoryName(props.row.category_id)">
+                            {{ props.row.category_name || getCategoryName(props.row.category_id) }}
+                          </span>
+                          <span v-else-if="props.row.category_id" class="text-grey-6 text-caption">
+                            Invalid Category
+                          </span>
+                          <span v-else>Select Category</span>
+                        </div>
+                      </template>
                     </q-select>
                     <q-icon 
                       v-if="props.row.category_source === 'ai'" 
