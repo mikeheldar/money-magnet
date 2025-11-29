@@ -444,9 +444,9 @@ export default {
       results.value = []
 
       try {
-        // Process in batches of 20 to avoid N8N execution splitting
-        // N8N splits execution even with 50 items, causing partial responses
-        const BATCH_SIZE = 20
+        // Process all transactions in a single batch
+        // The N8N workflow will handle merging all results from all execution runs
+        const BATCH_SIZE = 1000 // Large enough to process all at once
         const allTransactions = uncategorizedTransactions.value
         const batches = []
         
