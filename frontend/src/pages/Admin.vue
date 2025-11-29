@@ -385,8 +385,39 @@ export default {
       results.value = []
 
       try {
-        console.log('🟢 [Admin] Starting batch categorization for', uncategorizedTransactions.value.length, 'uncategorized transactions')
-        const response = await firebaseApi.categorizeTransactionsBatch(uncategorizedTransactions.value)
+        // Process in batches of 50 to avoid N8N execution splitting
+        const BATCH_SIZE = 50
+        const allTransactions = uncategorizedTransactions.value
+        const batches = []
+        
+        for (let i = 0; i < allTransactions.length; i += BATCH_SIZE) {
+          batches.push(allTransactions.slice(i, i + BATCH_SIZE))
+        }
+        
+        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'uncategorized transactions in', batches.length, 'batches')
+        
+        // Process all batches and collect results
+        const allResults = []
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+          const batch = batches[batchIndex]
+          console.log(`🟢 [Admin] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} transactions)`)
+          
+          const response = await firebaseApi.categorizeTransactionsBatch(batch)
+          
+          if (response.results && Array.isArray(response.results)) {
+            allResults.push(...response.results)
+            console.log(`✅ [Admin] Batch ${batchIndex + 1} completed: ${response.results.length} results`)
+          }
+        }
+        
+        // Create a combined response object
+        const response = {
+          success: true,
+          count: allResults.length,
+          results: allResults
+        }
+        
+        console.log('✅ [Admin] All batches completed. Total results:', allResults.length)
         console.log('✅ [Admin] N8N response received:', {
           success: response.success,
           count: response.count,
