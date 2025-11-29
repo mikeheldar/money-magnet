@@ -1013,19 +1013,6 @@ export default {
       throw new Error(`Failed to fetch budgets: ${errorMsg}`)
     }
   },
-      
-      // Sort in memory if orderBy failed
-      budgets.sort((a, b) => {
-        const aTime = a.created_at?.toMillis?.() || 0
-        const bTime = b.created_at?.toMillis?.() || 0
-        return bTime - aTime
-      })
-      
-      return budgets
-    } catch (error) {
-      throw new Error(`Failed to fetch budgets: ${error.message}`)
-    }
-  },
 
   async createBudget(budget) {
     try {

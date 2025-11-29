@@ -216,7 +216,6 @@ import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import { useRouter } from 'vue-router'
 import firebaseApi from '../services/firebase-api'
-import { getCategoryIcon } from '../utils/category-icons'
 
 export default defineComponent({
   name: 'RecurringPage',
@@ -226,6 +225,7 @@ export default defineComponent({
     const loading = ref(false)
     const selectedFrequency = ref('weekly')
     const transactions = ref([])
+    const categories = ref([])
     
     const columns = [
       { name: 'date', label: 'Date', field: 'date', align: 'left', sortable: true },
@@ -271,6 +271,24 @@ export default defineComponent({
         month: 'short', 
         day: 'numeric' 
       })
+    }
+
+    const getCategoryIcon = (categoryId) => {
+      if (!categoryId) return null
+      const category = categories.value.find(c => c.id === categoryId)
+      if (!category || !category.icon) return null
+      return {
+        name: category.icon,
+        color: category.icon_color || '#757575'
+      }
+    }
+
+    const loadCategories = async () => {
+      try {
+        categories.value = await firebaseApi.getCategories()
+      } catch (err) {
+        console.error('❌ [Recurring] Failed to load categories:', err)
+      }
     }
 
     const loadTransactions = async () => {
@@ -326,6 +344,7 @@ export default defineComponent({
     }
 
     onMounted(async () => {
+      await loadCategories()
       await loadTransactions()
     })
 
