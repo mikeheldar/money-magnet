@@ -181,21 +181,32 @@ export default {
     }
 
     const clearAndRelearnAll = async () => {
-      const confirmed = await $q.dialog({
-        title: 'Confirm Clear & Relearn',
-        message: 'This will clear all category assignments from ALL transactions and recategorize them. This action cannot be undone. Continue?',
-        cancel: true,
-        persistent: true,
-        ok: {
-          color: 'negative',
-          label: 'Yes, Clear & Relearn'
-        }
-      })
+      // Show confirmation dialog and wait for user response
+      try {
+        const confirmed = await $q.dialog({
+          title: 'Confirm Clear & Relearn',
+          message: 'This will clear all category assignments from ALL transactions and recategorize them. This action cannot be undone. Continue?',
+          cancel: true,
+          persistent: true,
+          ok: {
+            color: 'negative',
+            label: 'Yes, Clear & Relearn'
+          }
+        })
 
-      if (!confirmed) {
+        // If user cancelled or closed dialog, do nothing
+        if (!confirmed) {
+          console.log('🟡 [Admin] Clear & Relearn cancelled by user')
+          return
+        }
+      } catch (error) {
+        // If dialog was dismissed (e.g., ESC key), do nothing
+        console.log('🟡 [Admin] Clear & Relearn dialog dismissed:', error)
         return
       }
 
+      // Only proceed if user confirmed
+      console.log('✅ [Admin] User confirmed Clear & Relearn, starting process...')
       clearingAndRelearning.value = true
       results.value = []
 
