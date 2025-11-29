@@ -303,9 +303,27 @@ export default {
                   updated_at: serverTimestamp()
                 }
                 
-                // Always include category_name if we have it
+                // ALWAYS include category_name - fetch if missing
                 if (categoryName) {
                   updateData.category_name = categoryName
+                } else if (result.category_id) {
+                  // If category_name is still missing but category_id exists, fetch it now
+                  console.log(`🟡 [Admin] Category name still missing for category_id: ${result.category_id}, fetching in updateData...`)
+                  try {
+                    const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
+                    if (categoryDoc.exists()) {
+                      updateData.category_name = categoryDoc.data().name
+                      console.log(`✅ [Admin] Fetched and set category_name in updateData: ${updateData.category_name}`)
+                    } else {
+                      console.warn(`⚠️ [Admin] Category document not found: ${result.category_id}, removing category_id`)
+                      // Don't set category_id if category doesn't exist
+                      delete updateData.category_id
+                    }
+                  } catch (catError) {
+                    console.error(`❌ [Admin] Error fetching category for ${result.category_id}:`, catError)
+                    // Don't set category_id if we can't verify it exists
+                    delete updateData.category_id
+                  }
                 }
                 
                 // Set category_source - check both category_source and source fields
@@ -478,9 +496,27 @@ export default {
                   updated_at: serverTimestamp()
                 }
                 
-                // Always include category_name if we have it
+                // ALWAYS include category_name - fetch if missing
                 if (categoryName) {
                   updateData.category_name = categoryName
+                } else if (result.category_id) {
+                  // If category_name is still missing but category_id exists, fetch it now
+                  console.log(`🟡 [Admin] Category name still missing for category_id: ${result.category_id}, fetching in updateData...`)
+                  try {
+                    const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
+                    if (categoryDoc.exists()) {
+                      updateData.category_name = categoryDoc.data().name
+                      console.log(`✅ [Admin] Fetched and set category_name in updateData: ${updateData.category_name}`)
+                    } else {
+                      console.warn(`⚠️ [Admin] Category document not found: ${result.category_id}, removing category_id`)
+                      // Don't set category_id if category doesn't exist
+                      delete updateData.category_id
+                    }
+                  } catch (catError) {
+                    console.error(`❌ [Admin] Error fetching category for ${result.category_id}:`, catError)
+                    // Don't set category_id if we can't verify it exists
+                    delete updateData.category_id
+                  }
                 }
                 
                 // Set category_source - check both category_source and source fields
