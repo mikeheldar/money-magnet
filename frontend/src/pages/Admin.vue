@@ -234,15 +234,45 @@ export default {
           return
         }
 
-        // Step 3: Categorize all transactions
+        // Step 3: Categorize all transactions in batches
         $q.notify({
           type: 'info',
           message: `Recategorizing ${allTransactions.length} transactions...`,
           position: 'top'
         })
 
-        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'transactions')
-        const response = await firebaseApi.categorizeTransactionsBatch(allTransactions)
+        // Process in batches of 50 to avoid N8N execution splitting
+        const BATCH_SIZE = 50
+        const batches = []
+        
+        for (let i = 0; i < allTransactions.length; i += BATCH_SIZE) {
+          batches.push(allTransactions.slice(i, i + BATCH_SIZE))
+        }
+        
+        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'transactions in', batches.length, 'batches')
+        
+        // Process all batches and collect results
+        const allResults = []
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+          const batch = batches[batchIndex]
+          console.log(`🟢 [Admin] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} transactions)`)
+          
+          const batchResponse = await firebaseApi.categorizeTransactionsBatch(batch)
+          
+          if (batchResponse.results && Array.isArray(batchResponse.results)) {
+            allResults.push(...batchResponse.results)
+            console.log(`✅ [Admin] Batch ${batchIndex + 1} completed: ${batchResponse.results.length} results`)
+          }
+        }
+        
+        // Create a combined response object
+        const response = {
+          success: true,
+          count: allResults.length,
+          results: allResults
+        }
+        
+        console.log('✅ [Admin] All batches completed. Total results:', allResults.length)
         console.log('✅ [Admin] N8N response received:', {
           success: response.success,
           count: response.count,
