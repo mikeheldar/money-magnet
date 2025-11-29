@@ -444,8 +444,9 @@ export default {
       results.value = []
 
       try {
-        // Process in batches of 50 to avoid N8N execution splitting
-        const BATCH_SIZE = 50
+        // Process in batches of 20 to avoid N8N execution splitting
+        // N8N splits execution even with 50 items, causing partial responses
+        const BATCH_SIZE = 20
         const allTransactions = uncategorizedTransactions.value
         const batches = []
         
