@@ -729,6 +729,26 @@ export default defineComponent({
         }
       } catch (err) {
         console.error('Error loading snapshots:', err)
+        const errorMessage = err.message || String(err)
+        
+        // Check if it's an index error
+        if (errorMessage.includes('index') || errorMessage.includes('FAILED_PRECONDITION')) {
+          $q.notify({
+            type: 'warning',
+            message: 'Firestore index is being built',
+            caption: 'This may take a few minutes. Please try again in a moment.',
+            timeout: 5000,
+            position: 'top'
+          })
+        } else {
+          $q.notify({
+            type: 'negative',
+            message: 'Failed to load balance snapshots',
+            caption: errorMessage,
+            timeout: 5000,
+            position: 'top'
+          })
+        }
       }
     }
 
