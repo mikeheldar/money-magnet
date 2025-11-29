@@ -87,3 +87,4 @@ If Expression mode doesn't work, try Fixed mode:
 3. **Verify the response format** matches what Firebase expects: `{ category_id: "...", category_name: "...", confidence: 0.8, source: "ai" }`
 
 
+

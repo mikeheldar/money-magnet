@@ -1,6 +1,7 @@
 const functions = require('firebase-functions');
 const { onCall } = require('firebase-functions/v2/https');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
@@ -1212,4 +1213,293 @@ exports.getUserCategories = onCall(async (request) => {
     throw new functions.https.HttpsError('internal', 'Failed to get user categories', error);
   }
 });
+
+// Balance Snapshots Functions
+exports.createBalanceSnapshot = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const userId = request.auth.uid;
+  const { account_id, date } = request.data;
+
+  if (!account_id) {
+    throw new functions.https.HttpsError('invalid-argument', 'account_id is required');
+  }
+
+  try {
+    // Get account to get current balance
+    const accountRef = admin.firestore().collection('accounts').doc(account_id);
+    const accountDoc = await accountRef.get();
+
+    if (!accountDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Account not found');
+    }
+
+    const account = accountDoc.data();
+    if (account.user_id !== userId) {
+      throw new functions.https.HttpsError('permission-denied', 'Not authorized');
+    }
+
+    // Use provided date or current date
+    const snapshotDate = date || new Date().toISOString().split('T')[0];
+
+    // Create snapshot
+    const snapshotRef = admin.firestore().collection('balance_snapshots');
+    const snapshotData = {
+      user_id: userId,
+      account_id: account_id,
+      account_name: account.name,
+      balance: account.balance_current || 0,
+      date: snapshotDate,
+      is_end_of_month: false, // Manual snapshots are not end-of-month
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const snapshotDoc = await snapshotRef.add(snapshotData);
+
+    return {
+      id: snapshotDoc.id,
+      ...snapshotData,
+      created_at: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error creating balance snapshot:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to create balance snapshot', error);
+  }
+});
+
+exports.getBalanceSnapshots = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const userId = request.auth.uid;
+  const { account_id } = request.data;
+
+  try {
+    const snapshotsRef = admin.firestore().collection('balance_snapshots');
+    let query = snapshotsRef.where('user_id', '==', userId);
+
+    if (account_id) {
+      query = query.where('account_id', '==', account_id);
+    }
+
+    query = query.orderBy('date', 'desc');
+
+    const snapshot = await query.get();
+
+    const snapshots = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    return { snapshots };
+  } catch (error) {
+    console.error('Error getting balance snapshots:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to get balance snapshots', error);
+  }
+});
+
+// Scheduled function to create end-of-month snapshots
+// This should be set up as a Cloud Scheduler job that runs daily
+// and checks if it's the last day of the month
+exports.createEndOfMonthSnapshots = onCall(async (request) => {
+  // This can be called manually or by a scheduled job
+  // For scheduled jobs, we might want to allow unauthenticated calls with a secret
+  const userId = request.auth?.uid || request.data?.user_id;
+
+  if (!userId) {
+    throw new functions.https.HttpsError('unauthenticated', 'User ID is required');
+  }
+
+  try {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Check if tomorrow is the first day of the month (meaning today is last day)
+    const isLastDayOfMonth = tomorrow.getDate() === 1;
+
+    if (!isLastDayOfMonth && !request.data?.force) {
+      return { message: 'Not the last day of the month. No snapshots created.', created: 0 };
+    }
+
+    // Get all accounts for the user
+    const accountsRef = admin.firestore().collection('accounts');
+    const accountsSnapshot = await accountsRef
+      .where('user_id', '==', userId)
+      .where('is_closed', '==', false)
+      .get();
+
+    if (accountsSnapshot.empty) {
+      return { message: 'No accounts found', created: 0 };
+    }
+
+    const snapshotDate = today.toISOString().split('T')[0];
+    const monthYear = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+    const snapshotsRef = admin.firestore().collection('balance_snapshots');
+    let createdCount = 0;
+
+    // Check if snapshots already exist for this month
+    const existingSnapshots = await snapshotsRef
+      .where('user_id', '==', userId)
+      .where('date', '==', snapshotDate)
+      .where('is_end_of_month', '==', true)
+      .get();
+
+    const existingAccountIds = new Set(existingSnapshots.docs.map(doc => doc.data().account_id));
+
+    // Create snapshots for accounts that don't have one yet
+    for (const accountDoc of accountsSnapshot.docs) {
+      const account = accountDoc.data();
+      const accountId = accountDoc.id;
+
+      // Skip if snapshot already exists for this account and date
+      if (existingAccountIds.has(accountId)) {
+        continue;
+      }
+
+      const snapshotData = {
+        user_id: userId,
+        account_id: accountId,
+        account_name: account.name,
+        balance: account.balance_current || 0,
+        date: snapshotDate,
+        month_year: monthYear,
+        is_end_of_month: true,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await snapshotsRef.add(snapshotData);
+      createdCount++;
+    }
+
+    return {
+      message: `Created ${createdCount} end-of-month snapshot(s) for ${snapshotDate}`,
+      created: createdCount,
+      date: snapshotDate
+    };
+  } catch (error) {
+    console.error('Error creating end-of-month snapshots:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to create end-of-month snapshots', error);
+  }
+});
+
+// Scheduled function to automatically create end-of-month snapshots
+// Runs daily at 11:59 PM in the specified timezone
+// This will check if it's the last day of the month and create snapshots for all users
+exports.createEndOfMonthSnapshotsScheduled = onSchedule({
+  schedule: '59 23 * * *', // Daily at 11:59 PM
+  timeZone: 'America/New_York', // Adjust to your timezone
+  retryConfig: {
+    retryCount: 2,
+    maxRetryDuration: '60s'
+  }
+}, async (event) => {
+  console.log('🔄 [Scheduled] Checking for end-of-month snapshot creation...')
+  
+  try {
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    
+    // Check if tomorrow is the first day of the month (meaning today is last day)
+    const isLastDayOfMonth = tomorrow.getDate() === 1
+    
+    if (!isLastDayOfMonth) {
+      console.log('ℹ️ [Scheduled] Not the last day of the month. Skipping snapshot creation.')
+      return { message: 'Not the last day of the month', created: 0 }
+    }
+    
+    console.log('✅ [Scheduled] Last day of month detected. Creating snapshots for all users...')
+    
+    // Get all users
+    const usersRef = admin.firestore().collection('users')
+    const usersSnapshot = await usersRef.get()
+    
+    if (usersSnapshot.empty) {
+      console.log('ℹ️ [Scheduled] No users found')
+      return { message: 'No users found', created: 0 }
+    }
+    
+    const snapshotDate = today.toISOString().split('T')[0]
+    const monthYear = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+    
+    let totalCreated = 0
+    
+    // Create snapshots for each user
+    for (const userDoc of usersSnapshot.docs) {
+      const userId = userDoc.id
+      
+      try {
+        // Get all accounts for this user
+        const accountsRef = admin.firestore().collection('accounts')
+        const accountsSnapshot = await accountsRef
+          .where('user_id', '==', userId)
+          .where('is_closed', '==', false)
+          .get()
+        
+        if (accountsSnapshot.empty) {
+          continue
+        }
+        
+        const snapshotsRef = admin.firestore().collection('balance_snapshots')
+        
+        // Check if snapshots already exist for this user and date
+        const existingSnapshots = await snapshotsRef
+          .where('user_id', '==', userId)
+          .where('date', '==', snapshotDate)
+          .where('is_end_of_month', '==', true)
+          .get()
+        
+        const existingAccountIds = new Set(existingSnapshots.docs.map(doc => doc.data().account_id))
+        
+        // Create snapshots for accounts that don't have one yet
+        for (const accountDoc of accountsSnapshot.docs) {
+          const account = accountDoc.data()
+          const accountId = accountDoc.id
+          
+          // Skip if snapshot already exists
+          if (existingAccountIds.has(accountId)) {
+            continue
+          }
+          
+          const snapshotData = {
+            user_id: userId,
+            account_id: accountId,
+            account_name: account.name,
+            balance: account.balance_current || 0,
+            date: snapshotDate,
+            month_year: monthYear,
+            is_end_of_month: true,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp()
+          }
+          
+          await snapshotsRef.add(snapshotData)
+          totalCreated++
+        }
+        
+        console.log(`✅ [Scheduled] Created snapshots for user ${userId}`)
+      } catch (userError) {
+        console.error(`❌ [Scheduled] Error creating snapshots for user ${userId}:`, userError)
+        // Continue with other users even if one fails
+      }
+    }
+    
+    console.log(`✅ [Scheduled] End-of-month snapshot creation complete. Created ${totalCreated} snapshot(s) for ${snapshotDate}`)
+    return {
+      message: `Created ${totalCreated} end-of-month snapshot(s) for ${snapshotDate}`,
+      created: totalCreated,
+      date: snapshotDate
+    }
+  } catch (error) {
+    console.error('❌ [Scheduled] Error in scheduled snapshot creation:', error)
+    throw error
+  }
+})
 

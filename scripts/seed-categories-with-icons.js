@@ -240,3 +240,4 @@ if (typeof window !== 'undefined') {
 
 export { categoryStructure, getIconColor }
 
+

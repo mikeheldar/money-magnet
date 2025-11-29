@@ -128,3 +128,4 @@ firebase functions:log | grep "getUserCategoriesHttp"
    return result;
    ```
 
+

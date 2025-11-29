@@ -40,3 +40,4 @@ echo "  - https://us-central1-money-magnet-cf5a4.cloudfunctions.net/saveCategory
 echo ""
 
 
+

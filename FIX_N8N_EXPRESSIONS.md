@@ -115,3 +115,4 @@ Based on the workflow structure, the expressions should work. The issue might be
 Try executing the "Normalize Pattern" node first to see what data it has, then update the expressions accordingly.
 
 
+

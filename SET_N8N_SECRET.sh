@@ -14,3 +14,4 @@ echo "Secret set! Now redeploy functions:"
 echo "firebase deploy --only functions"
 
 
+

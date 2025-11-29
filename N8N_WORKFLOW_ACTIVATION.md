@@ -82,3 +82,4 @@ After activating:
 - Make sure you're creating transactions WITHOUT a category_id
 
 
+

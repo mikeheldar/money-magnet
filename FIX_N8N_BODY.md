@@ -85,3 +85,4 @@ N8N has two ways to send request bodies:
 The workflow JSON file has the correct configuration, but when you imported it or edited the node, N8N may have switched to "Using Fields Below" mode.
 
 
+

@@ -64,3 +64,4 @@ Try using a "Set" node before "Check Learned Mapping" to explicitly set the valu
 - Then use those mapped values in the HTTP Request node
 
 
+

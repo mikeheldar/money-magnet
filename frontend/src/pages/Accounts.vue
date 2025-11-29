@@ -16,21 +16,37 @@
             class="accounts-table"
           >
             <template v-slot:top>
-              <q-btn
-                color="primary"
-                icon="add"
-                label="Add Account"
-                @click="showAddRow = true"
-                :disable="showAddRow"
-                class="q-mr-sm"
-              />
-              <q-btn
-                color="secondary"
-                icon="account_balance"
-                label="Connect with Plaid"
-                @click="connectWithPlaid"
-                :loading="plaidLoading"
-              />
+              <div class="row full-width items-center q-gutter-sm">
+                <q-btn
+                  color="primary"
+                  icon="add"
+                  label="Add Account"
+                  @click="showAddRow = true"
+                  :disable="showAddRow"
+                />
+                <q-btn
+                  color="secondary"
+                  icon="account_balance"
+                  label="Connect with Plaid"
+                  @click="connectWithPlaid"
+                  :loading="plaidLoading"
+                />
+                <q-btn
+                  color="accent"
+                  icon="camera_alt"
+                  label="Add Balance Snapshot"
+                  @click="createSnapshot"
+                  :loading="creatingSnapshot"
+                />
+                <q-space />
+                <q-btn
+                  :color="comparingSnapshot ? 'primary' : 'grey'"
+                  :outline="!comparingSnapshot"
+                  icon="compare_arrows"
+                  :label="comparingSnapshot ? 'Exit Comparison' : 'Compare to Snapshot'"
+                  @click="toggleComparison"
+                />
+              </div>
             </template>
 
             <template v-slot:body="props">
@@ -167,8 +183,18 @@
                     outlined
                   />
                 </q-td>
-                <q-td v-else :class="props.row.balance_current >= 0 ? 'text-positive' : 'text-negative'">
-                  ${{ formatCurrency(props.row.balance_current) }}
+                <q-td v-else>
+                  <div class="column">
+                    <div :class="props.row.balance_current >= 0 ? 'text-positive' : 'text-negative'">
+                      ${{ formatCurrency(props.row.balance_current) }}
+                    </div>
+                    <div v-if="comparingSnapshot && getSnapshotBalance(props.row.id)" class="text-caption">
+                      <span :class="getBalanceChange(props.row.id) >= 0 ? 'text-positive' : 'text-negative'">
+                        {{ getBalanceChange(props.row.id) >= 0 ? '+' : '' }}${{ formatCurrency(Math.abs(getBalanceChange(props.row.id))) }}
+                      </span>
+                      <span class="text-grey-6"> vs {{ formatSnapshotDate(selectedSnapshotIndex) }}</span>
+                    </div>
+                  </div>
                 </q-td>
 
                 <q-td v-if="editingId === props.row.id">
@@ -247,6 +273,51 @@
               </q-tr>
             </template>
           </q-table>
+
+          <!-- Snapshot Comparison Controls -->
+          <div v-if="comparingSnapshot" class="q-mt-md">
+            <q-card flat bordered>
+              <q-card-section>
+                <div class="row items-center justify-between">
+                  <div class="col-auto">
+                    <div class="text-subtitle2 text-grey-7">Comparing to:</div>
+                    <div class="text-h6">
+                      {{ selectedSnapshot ? formatSnapshotDate(selectedSnapshotIndex) : 'No snapshot selected' }}
+                      <q-badge v-if="selectedSnapshot && selectedSnapshot.is_end_of_month" color="primary" class="q-ml-sm">
+                        End of Month
+                      </q-badge>
+                      <span v-if="selectedSnapshot" class="text-caption text-grey-6 q-ml-sm">
+                        ({{ selectedSnapshot.snapshots.length }} account{{ selectedSnapshot.snapshots.length !== 1 ? 's' : '' }})
+                      </span>
+                    </div>
+                  </div>
+                  <div class="col-auto">
+                    <div class="row items-center q-gutter-sm">
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        icon="chevron_left"
+                        @click="previousSnapshot"
+                        :disable="selectedSnapshotIndex === null || selectedSnapshotIndex >= snapshots.length - 1"
+                      />
+                      <div class="text-caption text-grey-7">
+                        {{ selectedSnapshotIndex !== null ? `${selectedSnapshotIndex + 1} of ${snapshots.length}` : 'No snapshots' }}
+                      </div>
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        icon="chevron_right"
+                        @click="nextSnapshot"
+                        :disable="selectedSnapshotIndex === null || selectedSnapshotIndex <= 0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
         </q-card-section>
       </q-card>
     </div>
@@ -271,6 +342,10 @@ export default defineComponent({
     const showAddRow = ref(false)
     const editingId = ref(null)
     const plaidLoading = ref(false)
+    const creatingSnapshot = ref(false)
+    const comparingSnapshot = ref(false)
+    const snapshots = ref([])
+    const selectedSnapshotIndex = ref(null)
     
     const accountTypeOptions = computed(() => {
       return accountTypes.value.map(type => ({
@@ -594,6 +669,129 @@ export default defineComponent({
       }
     }
 
+    const createSnapshot = async () => {
+      creatingSnapshot.value = true
+      try {
+        // Create snapshot for all accounts
+        const snapshotPromises = accounts.value.map(account => 
+          firebaseApi.createBalanceSnapshot(account.id)
+        )
+        
+        await Promise.all(snapshotPromises)
+        
+        $q.notify({
+          type: 'positive',
+          message: `Created balance snapshot for ${accounts.value.length} account(s)`,
+          timeout: 3000
+        })
+        
+        // Reload snapshots if comparing
+        if (comparingSnapshot.value) {
+          await loadSnapshots()
+        }
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to create balance snapshot'
+        })
+      } finally {
+        creatingSnapshot.value = false
+      }
+    }
+
+    const loadSnapshots = async () => {
+      try {
+        const allSnapshots = await firebaseApi.getBalanceSnapshots()
+        
+        // Group snapshots by date and get unique dates
+        const snapshotsByDate = {}
+        allSnapshots.forEach(snapshot => {
+          const date = snapshot.date || ''
+          if (!snapshotsByDate[date]) {
+            snapshotsByDate[date] = []
+          }
+          snapshotsByDate[date].push(snapshot)
+        })
+        
+        // Create array of unique dates sorted descending
+        const uniqueDates = Object.keys(snapshotsByDate).sort((a, b) => b.localeCompare(a))
+        
+        // Store snapshots grouped by date
+        snapshots.value = uniqueDates.map(date => ({
+          date,
+          snapshots: snapshotsByDate[date],
+          is_end_of_month: snapshotsByDate[date][0]?.is_end_of_month || false
+        }))
+        
+        // Set to most recent snapshot date if available
+        if (snapshots.value.length > 0 && selectedSnapshotIndex.value === null) {
+          selectedSnapshotIndex.value = 0
+        }
+      } catch (err) {
+        console.error('Error loading snapshots:', err)
+      }
+    }
+
+    const toggleComparison = async () => {
+      comparingSnapshot.value = !comparingSnapshot.value
+      if (comparingSnapshot.value) {
+        await loadSnapshots()
+      } else {
+        selectedSnapshotIndex.value = null
+      }
+    }
+
+    const previousSnapshot = () => {
+      if (selectedSnapshotIndex.value !== null && selectedSnapshotIndex.value < snapshots.value.length - 1) {
+        selectedSnapshotIndex.value++
+      }
+    }
+
+    const nextSnapshot = () => {
+      if (selectedSnapshotIndex.value !== null && selectedSnapshotIndex.value > 0) {
+        selectedSnapshotIndex.value--
+      }
+    }
+
+    const selectedSnapshot = computed(() => {
+      if (selectedSnapshotIndex.value === null || !snapshots.value[selectedSnapshotIndex.value]) {
+        return null
+      }
+      return snapshots.value[selectedSnapshotIndex.value]
+    })
+
+    const getSnapshotBalance = (accountId) => {
+      if (!selectedSnapshot.value) return null
+      
+      // Find snapshot for this account in the selected date's snapshots
+      const accountSnapshot = selectedSnapshot.value.snapshots.find(s => 
+        s.account_id === accountId
+      )
+      
+      return accountSnapshot ? accountSnapshot.balance : null
+    }
+
+    const getBalanceChange = (accountId) => {
+      const account = accounts.value.find(a => a.id === accountId)
+      if (!account) return 0
+      
+      const snapshotBalance = getSnapshotBalance(accountId)
+      if (snapshotBalance === null) return 0
+      
+      return account.balance_current - snapshotBalance
+    }
+
+    const formatSnapshotDate = (index) => {
+      if (index === null || !snapshots.value[index]) return ''
+      const snapshotGroup = snapshots.value[index]
+      const date = new Date(snapshotGroup.date)
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })
+    }
+
     const connectWithPlaid = async () => {
       console.log('🟢 [Accounts] connectWithPlaid called')
       plaidLoading.value = true
@@ -717,7 +915,18 @@ export default defineComponent({
       onUpdateAccount,
       deleteAccount,
       connectWithPlaid,
-      plaidLoading
+      plaidLoading,
+      createSnapshot,
+      creatingSnapshot,
+      comparingSnapshot,
+      toggleComparison,
+      previousSnapshot,
+      nextSnapshot,
+      selectedSnapshot,
+      selectedSnapshotIndex,
+      getSnapshotBalance,
+      getBalanceChange,
+      formatSnapshotDate
     }
   }
 })

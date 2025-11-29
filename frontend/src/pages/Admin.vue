@@ -251,16 +251,17 @@ export default {
           }))
 
           // Update transactions in Firestore
-          const { updateDoc, doc, getDoc } = await import('firebase/firestore')
+          const { updateDoc, doc, getDoc, serverTimestamp } = await import('firebase/firestore')
           const { db } = await import('../config/firebase')
           
           let successCount = 0
           let errorCount = 0
 
           for (const result of response.results) {
-            if (result.category_id && result.transaction_id) {
+            const transactionId = result.transaction_id || result.id
+            if (result.category_id && transactionId) {
               try {
-                // Fetch category name to include in update
+                // Use category_name from result, or fetch it if missing
                 let categoryName = result.category_name || null
                 if (!categoryName && result.category_id) {
                   try {
@@ -275,32 +276,30 @@ export default {
 
                 const updateData = {
                   category_id: result.category_id,
-                  updated_at: new Date().toISOString()
+                  updated_at: serverTimestamp()
                 }
                 
-                // Include category_name if we have it
+                // Always include category_name if we have it
                 if (categoryName) {
                   updateData.category_name = categoryName
                 }
                 
-                // Set category_source if AI categorized
-                if (result.category_source === 'ai') {
-                  updateData.category_source = 'ai'
-                  updateData.category_suggested = true
-                  updateData.category_confidence = result.confidence || 0.8
-                } else if (result.source === 'ai') {
-                  // Fallback to source field
-                  updateData.category_source = 'ai'
+                // Set category_source - check both category_source and source fields
+                const source = result.category_source || result.source
+                if (source === 'ai' || source === 'learned') {
+                  updateData.category_source = source
                   updateData.category_suggested = true
                   updateData.category_confidence = result.confidence || 0.8
                 }
                 
-                await updateDoc(doc(db, 'transactions', result.transaction_id), updateData)
+                await updateDoc(doc(db, 'transactions', transactionId), updateData)
                 successCount++
               } catch (error) {
-                console.error(`Failed to update transaction ${result.transaction_id}:`, error)
+                console.error(`Failed to update transaction ${transactionId}:`, error)
                 errorCount++
               }
+            } else {
+              console.warn('Skipping transaction update - missing category_id or transaction_id:', result)
             }
           }
 
@@ -353,16 +352,17 @@ export default {
           }))
 
           // Update transactions in Firestore
-          const { updateDoc, doc, getDoc } = await import('firebase/firestore')
+          const { updateDoc, doc, getDoc, serverTimestamp } = await import('firebase/firestore')
           const { db } = await import('../config/firebase')
           
           let successCount = 0
           let errorCount = 0
 
           for (const result of response.results) {
-            if (result.category_id && result.transaction_id) {
+            const transactionId = result.transaction_id || result.id
+            if (result.category_id && transactionId) {
               try {
-                // Fetch category name to include in update
+                // Use category_name from result, or fetch it if missing
                 let categoryName = result.category_name || null
                 if (!categoryName && result.category_id) {
                   try {
@@ -377,32 +377,30 @@ export default {
 
                 const updateData = {
                   category_id: result.category_id,
-                  updated_at: new Date().toISOString()
+                  updated_at: serverTimestamp()
                 }
                 
-                // Include category_name if we have it
+                // Always include category_name if we have it
                 if (categoryName) {
                   updateData.category_name = categoryName
                 }
                 
-                // Set category_source if AI categorized
-                if (result.category_source === 'ai') {
-                  updateData.category_source = 'ai'
-                  updateData.category_suggested = true
-                  updateData.category_confidence = result.confidence || 0.8
-                } else if (result.source === 'ai') {
-                  // Fallback to source field
-                  updateData.category_source = 'ai'
+                // Set category_source - check both category_source and source fields
+                const source = result.category_source || result.source
+                if (source === 'ai' || source === 'learned') {
+                  updateData.category_source = source
                   updateData.category_suggested = true
                   updateData.category_confidence = result.confidence || 0.8
                 }
                 
-                await updateDoc(doc(db, 'transactions', result.transaction_id), updateData)
+                await updateDoc(doc(db, 'transactions', transactionId), updateData)
                 successCount++
               } catch (error) {
-                console.error(`Failed to update transaction ${result.transaction_id}:`, error)
+                console.error(`Failed to update transaction ${transactionId}:`, error)
                 errorCount++
               }
+            } else {
+              console.warn('Skipping transaction update - missing category_id or transaction_id:', result)
             }
           }
 

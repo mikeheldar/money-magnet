@@ -60,3 +60,4 @@ Update your "Check Learned Mapping" HTTP Request node:
 Do the same for "Get User Categories" and "Save Mapping" nodes.
 
 
+

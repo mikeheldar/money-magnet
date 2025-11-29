@@ -53,3 +53,4 @@ After updating, test the workflow:
 4. Refresh transactions page - category should appear!
 
 
+

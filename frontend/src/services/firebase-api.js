@@ -1284,24 +1284,45 @@ export default {
   },
 
   // Admin: Get uncategorized transactions
+  // Includes transactions with null category_id OR invalid category_id (category doesn't exist)
   async getUncategorizedTransactions() {
     try {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const q = query(
-        collection(db, 'transactions'),
-        where('user_id', '==', userId),
-        where('category_id', '==', null)
+      // Get all transactions for the user
+      const transactionsRef = collection(db, 'transactions')
+      const transactionsQuery = query(
+        transactionsRef,
+        where('user_id', '==', userId)
       )
+      const transactionsSnapshot = await getDocs(transactionsQuery)
+      
+      // Get all valid category IDs for this user
+      const categoriesRef = collection(db, 'categories')
+      const categoriesQuery = query(
+        categoriesRef,
+        where('user_id', '==', userId)
+      )
+      const categoriesSnapshot = await getDocs(categoriesQuery)
+      const validCategoryIds = new Set(categoriesSnapshot.docs.map(doc => doc.id))
+      
+      // Filter transactions that are uncategorized (null category_id or invalid category_id)
+      const uncategorizedTransactions = []
+      transactionsSnapshot.docs.forEach(doc => {
+        const transaction = { id: doc.id, ...doc.data() }
+        const categoryId = transaction.category_id
+        
+        // Transaction is uncategorized if:
+        // 1. category_id is null/undefined, OR
+        // 2. category_id exists but is not in the valid categories list, OR
+        // 3. category_id exists but category_name is missing (invalid category)
+        if (!categoryId || !validCategoryIds.has(categoryId) || !transaction.category_name) {
+          uncategorizedTransactions.push(transaction)
+        }
+      })
 
-      const snapshot = await getDocs(q)
-      const transactions = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      return transactions
+      return uncategorizedTransactions
     } catch (error) {
       const errorMsg = handleFirestoreError(error, 'getUncategorizedTransactions')
       throw new Error(`Failed to get uncategorized transactions: ${errorMsg}`)
@@ -1472,6 +1493,48 @@ export default {
       return result
     } catch (error) {
       throw new Error(`Failed to categorize transactions batch: ${error.message}`)
+    }
+  },
+
+  // Balance Snapshots
+  async createBalanceSnapshot(account_id, date) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { httpsCallable } = await import('firebase/functions')
+      const { getFunctions } = await import('firebase/functions')
+      const functions = getFunctions()
+      const createBalanceSnapshotFn = httpsCallable(functions, 'createBalanceSnapshot')
+
+      const result = await createBalanceSnapshotFn({
+        account_id,
+        date: date || null // If not provided, uses current date
+      })
+
+      return result.data
+    } catch (error) {
+      throw new Error(`Failed to create balance snapshot: ${error.message}`)
+    }
+  },
+
+  async getBalanceSnapshots(account_id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { httpsCallable } = await import('firebase/functions')
+      const { getFunctions } = await import('firebase/functions')
+      const functions = getFunctions()
+      const getBalanceSnapshotsFn = httpsCallable(functions, 'getBalanceSnapshots')
+
+      const result = await getBalanceSnapshotsFn({
+        account_id: account_id || null // If not provided, gets all accounts
+      })
+
+      return result.data.snapshots || []
+    } catch (error) {
+      throw new Error(`Failed to get balance snapshots: ${error.message}`)
     }
   }
 }
