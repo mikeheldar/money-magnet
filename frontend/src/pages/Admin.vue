@@ -268,7 +268,7 @@ export default {
           batches.push(allTransactions.slice(i, i + BATCH_SIZE))
         }
         
-        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'transactions in', batches.length, 'batches')
+        console.log('🟢 [Admin] BATCH_SIZE =', BATCH_SIZE, '- Starting batch categorization for', allTransactions.length, 'transactions in', batches.length, 'batches')
         
         // Process all batches and collect results
         const allResults = []
@@ -462,7 +462,7 @@ export default {
           batches.push(allTransactions.slice(i, i + BATCH_SIZE))
         }
         
-        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'uncategorized transactions in', batches.length, 'batches')
+        console.log('🟢 [Admin] BATCH_SIZE =', BATCH_SIZE, '- Starting batch categorization for', allTransactions.length, 'uncategorized transactions in', batches.length, 'batches')
         
         // Process all batches and collect results
         const allResults = []
