@@ -6,8 +6,28 @@
   "framework": null,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!assets|.*\\.(js|css|woff|woff2|png|jpg|jpeg|gif|svg|ico|json)).*)",
       "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*\\.css)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/css"
+        }
+      ]
     }
   ]
 }
