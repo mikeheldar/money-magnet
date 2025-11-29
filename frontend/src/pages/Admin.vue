@@ -259,8 +259,9 @@ export default {
           position: 'top'
         })
 
-        // Process in batches of 50 to avoid N8N execution splitting
-        const BATCH_SIZE = 50
+        // Process all transactions in a single batch
+        // The N8N workflow will handle merging all results from all execution runs
+        const BATCH_SIZE = 1000 // Large enough to process all at once
         const batches = []
         
         for (let i = 0; i < allTransactions.length; i += BATCH_SIZE) {
