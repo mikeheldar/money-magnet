@@ -178,14 +178,26 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "aggregated",
+        "options": {}
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Collect ALL items from ALL input sources (both learned and AI paths)\n// This node runs once for all items, collecting everything from the Merge Results node\nconst allItems = $input.all();\n\nconsole.log('📊 [N8N] Total items collected from Merge Results:', allItems.length);\n\n// Map all items to result format\nconst results = allItems.map(item => {\n  const json = item.json || {};\n  \n  // Ensure category_name is always included if category_id exists\n  let categoryName = json.category_name || null;\n  if (!categoryName && json.category_id) {\n    // Try to extract from suggested_category or other fields\n    categoryName = json.suggested_category || null;\n  }\n  \n  return {\n    transaction_id: json.transaction_id || json.id || null,\n    description: json.description || '',\n    merchant: json.merchant || '',\n    category_id: json.category_id || null,\n    category_name: categoryName,\n    suggested_category: json.suggested_category || null,\n    confidence: json.confidence || 0.8,\n    source: json.source || 'ai',\n    category_source: json.source === 'ai' ? 'ai' : (json.source === 'learned' ? 'learned' : null),\n    match_score: json.match_score || 0,\n    matched_keyword: json.matched_keyword || null\n  };\n});\n\nconsole.log('✅ [N8N] Prepared', results.length, 'results for response');\nconsole.log('📋 [N8N] Sample results:', results.slice(0, 3).map(r => ({ id: r.transaction_id, cat_id: r.category_id, cat_name: r.category_name })));\n\n// Return a SINGLE object containing ALL results\n// This single object will be sent as the webhook response\nreturn {\n  success: true,\n  count: results.length,\n  results: results\n};"
+        "jsCode": "// Collect ALL items from the Aggregate Results node\n// The Aggregate node has already combined all items into a single array\nconst allItems = $input.all();\n\nconsole.log('📊 [N8N] Total items collected from Aggregate Results:', allItems.length);\n\n// The Aggregate node outputs items in aggregated.aggregated array\n// Extract the actual transaction results from the aggregated data\nlet results = [];\n\nif (allItems.length > 0 && allItems[0].json && allItems[0].json.aggregated) {\n  // Items are in the aggregated array\n  const aggregatedData = allItems[0].json.aggregated;\n  results = aggregatedData.map(item => {\n    const json = item || {};\n    \n    // Ensure category_name is always included if category_id exists\n    let categoryName = json.category_name || null;\n    if (!categoryName && json.category_id) {\n      // Try to extract from suggested_category or other fields\n      categoryName = json.suggested_category || null;\n    }\n    \n    return {\n      transaction_id: json.transaction_id || json.id || null,\n      description: json.description || '',\n      merchant: json.merchant || '',\n      category_id: json.category_id || null,\n      category_name: categoryName,\n      suggested_category: json.suggested_category || null,\n      confidence: json.confidence || 0.8,\n      source: json.source || 'ai',\n      category_source: json.source === 'ai' ? 'ai' : (json.source === 'learned' ? 'learned' : null),\n      match_score: json.match_score || 0,\n      matched_keyword: json.matched_keyword || null\n    };\n  });\n} else {\n  // Fallback: process items directly if aggregate structure is different\n  results = allItems.map(item => {\n    const json = item.json || {};\n    \n    // Ensure category_name is always included if category_id exists\n    let categoryName = json.category_name || null;\n    if (!categoryName && json.category_id) {\n      categoryName = json.suggested_category || null;\n    }\n    \n    return {\n      transaction_id: json.transaction_id || json.id || null,\n      description: json.description || '',\n      merchant: json.merchant || '',\n      category_id: json.category_id || null,\n      category_name: categoryName,\n      suggested_category: json.suggested_category || null,\n      confidence: json.confidence || 0.8,\n      source: json.source || 'ai',\n      category_source: json.source === 'ai' ? 'ai' : (json.source === 'learned' ? 'learned' : null),\n      match_score: json.match_score || 0,\n      matched_keyword: json.matched_keyword || null\n    };\n  });\n}\n\nconsole.log('✅ [N8N] Prepared', results.length, 'results for response');\nconsole.log('📋 [N8N] Sample results:', results.slice(0, 3).map(r => ({ id: r.transaction_id, cat_id: r.category_id, cat_name: r.category_name })));\n\n// Return a SINGLE object containing ALL results\n// This single object will be sent as the webhook response\nreturn {\n  success: true,\n  count: results.length,\n  results: results\n};"
       },
       "id": "prepare-response",
       "name": "Prepare Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2250, 300]
+      "position": [2450, 300]
     },
     {
       "parameters": {
@@ -196,7 +208,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2450, 300]
+      "position": [2650, 300]
     }
   ],
   "connections": {
@@ -231,6 +243,9 @@
       "main": [[{"node": "Merge Results", "type": "main", "index": 0}]]
     },
     "Merge Results": {
+      "main": [[{"node": "Aggregate Results", "type": "main", "index": 0}]]
+    },
+    "Aggregate Results": {
       "main": [[{"node": "Prepare Response", "type": "main", "index": 0}]]
     },
     "Prepare Response": {
