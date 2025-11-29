@@ -5,11 +5,84 @@
         <q-card-section>
           <div class="row items-center justify-between q-mb-md">
             <div class="text-h5" style="color: #3BA99F; font-weight: 600;">Budget</div>
-            <q-toggle
-              v-model="hideZeroActuals"
-              label="Hide items with $0 actuals"
-              color="primary"
-            />
+            <div class="row items-center q-gutter-sm">
+              <q-select
+                v-model="selectedMonth"
+                :options="monthOptions"
+                option-label="label"
+                option-value="value"
+                emit-value
+                map-options
+                dense
+                outlined
+                style="min-width: 150px;"
+                @update:model-value="onMonthChange"
+              />
+              <q-toggle
+                v-model="hideZeroActuals"
+                label="Hide items with $0 actuals"
+                color="primary"
+              />
+            </div>
+          </div>
+
+          <!-- Comparison Section -->
+          <div v-if="showComparison" class="q-mb-md">
+            <q-card flat bordered class="bg-blue-1">
+              <q-card-section>
+                <div class="text-subtitle2 q-mb-sm">Budget Progress Comparison</div>
+                <div class="row q-col-gutter-md">
+                  <div class="col-6">
+                    <div class="text-caption text-grey-7">This Month (Today: Day {{ currentDay }})</div>
+                    <div class="text-h6">
+                      <span :class="currentMonthProgress >= 0 ? 'text-positive' : 'text-negative'">
+                        {{ currentMonthProgress >= 0 ? '+' : '' }}{{ formatCurrency(currentMonthProgress) }}
+                      </span>
+                      <span class="text-caption text-grey-6 q-ml-sm">
+                        ({{ formatPercent(currentMonthProgressPercent) }})
+                      </span>
+                    </div>
+                    <div class="text-caption text-grey-6">
+                      Budget: ${{ formatCurrency(currentMonthBudget) }} | 
+                      Actual: ${{ formatCurrency(currentMonthActual) }}
+                    </div>
+                  </div>
+                  <div class="col-6">
+                    <div class="text-caption text-grey-7">Last Month (Day {{ currentDay }})</div>
+                    <div class="text-h6">
+                      <span :class="lastMonthProgress >= 0 ? 'text-positive' : 'text-negative'">
+                        {{ lastMonthProgress >= 0 ? '+' : '' }}{{ formatCurrency(lastMonthProgress) }}
+                      </span>
+                      <span class="text-caption text-grey-6 q-ml-sm">
+                        ({{ formatPercent(lastMonthProgressPercent) }})
+                      </span>
+                    </div>
+                    <div class="text-caption text-grey-6">
+                      Budget: ${{ formatCurrency(lastMonthBudget) }} | 
+                      Actual: ${{ formatCurrency(lastMonthActual) }}
+                    </div>
+                  </div>
+                </div>
+                <div class="row q-mt-sm">
+                  <div class="col-12">
+                    <div class="text-caption text-grey-7">Trend</div>
+                    <div class="text-body1">
+                      <q-icon 
+                        :name="trendIcon" 
+                        :color="trendColor"
+                        size="sm"
+                      />
+                      <span :class="trendColor + ' text-weight-medium'">
+                        {{ trendText }}
+                      </span>
+                      <span class="text-caption text-grey-6 q-ml-sm">
+                        ({{ formatPercent(trendPercent) }} change)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </q-card-section>
+            </q-card>
           </div>
           
           <q-table
@@ -570,7 +643,7 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, computed } from 'vue'
+import { defineComponent, ref, onMounted, computed, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 
@@ -587,6 +660,47 @@ export default defineComponent({
     const editingBudgetId = ref(null)
     const collapsedGroups = ref({}) // Track collapsed state for each group
     const hideZeroActuals = ref(true) // Default to hiding items with $0 actuals
+    
+    // Month selection
+    const currentDate = new Date()
+    const selectedMonth = ref(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`)
+    const showComparison = computed(() => {
+      // Only show comparison if viewing current month
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
+      return selectedMonth.value === currentMonthStr
+    })
+    
+    // Generate month options (last 12 months)
+    const monthOptions = computed(() => {
+      const options = []
+      const today = new Date()
+      for (let i = 0; i < 12; i++) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1)
+        const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        const monthName = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        options.push({
+          label: monthName,
+          value: monthStr
+        })
+      }
+      return options
+    })
+    
+    // Get selected month date range
+    const selectedMonthRange = computed(() => {
+      const [year, month] = selectedMonth.value.split('-').map(Number)
+      const monthStart = new Date(year, month - 1, 1)
+      const monthEnd = new Date(year, month, 0) // Last day of month
+      return { monthStart, monthEnd, year, month }
+    })
+    
+    // Current day of month for comparison
+    const currentDay = computed(() => {
+      if (showComparison.value) {
+        return currentDate.getDate()
+      }
+      return selectedMonthRange.value.monthEnd.getDate() // Show full month if not current
+    })
     
     const budgets = ref([])
     const categories = ref([])
@@ -636,9 +750,7 @@ export default defineComponent({
 
     const incomeItems = computed(() => {
       const items = []
-      const currentMonth = new Date()
-      const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-      const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+      const { monthStart, monthEnd } = selectedMonthRange.value
       
       // Group by category groups (parent categories)
       incomeCategoryOptions.value.forEach(parentCategory => {
@@ -651,12 +763,14 @@ export default defineComponent({
             b.period === 'monthly'
           )
           
-          const categoryTransactions = transactions.value.filter(t => 
-            t.category_id === parentCategory.id &&
-            t.type === 'income' &&
-            new Date(t.date) >= monthStart &&
-            new Date(t.date) <= monthEnd
-          )
+          const categoryTransactions = transactions.value.filter(t => {
+            const txDate = new Date(t.date)
+            return t.category_id === parentCategory.id &&
+                   t.type === 'income' &&
+                   txDate >= monthStart &&
+                   txDate <= monthEnd &&
+                   (!showComparison.value || txDate.getDate() <= currentDay.value)
+          })
           
           const actual = categoryTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
           const budgetAmount = budget ? parseFloat(budget.amount) : 0
@@ -681,10 +795,12 @@ export default defineComponent({
           // Get all transactions for child categories
           const allChildTransactions = transactions.value.filter(t => {
             const cat = categories.value.find(c => c.id === t.category_id)
+            const txDate = new Date(t.date)
             return cat && cat.parent_id === parentCategory.id &&
                    t.type === 'income' &&
-                   new Date(t.date) >= monthStart &&
-                   new Date(t.date) <= monthEnd
+                   txDate >= monthStart &&
+                   txDate <= monthEnd &&
+                   (!showComparison.value || txDate.getDate() <= currentDay.value)
           })
           
           groupActual = allChildTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
@@ -748,9 +864,7 @@ export default defineComponent({
 
     const expenseItems = computed(() => {
       const items = []
-      const currentMonth = new Date()
-      const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-      const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+      const { monthStart, monthEnd } = selectedMonthRange.value
       
       // Group by category groups (parent categories)
       expenseCategoryOptions.value.forEach(parentCategory => {
@@ -763,12 +877,14 @@ export default defineComponent({
             b.period === 'monthly'
           )
           
-          const categoryTransactions = transactions.value.filter(t => 
-            t.category_id === parentCategory.id &&
-            t.type === 'expense' &&
-            new Date(t.date) >= monthStart &&
-            new Date(t.date) <= monthEnd
-          )
+          const categoryTransactions = transactions.value.filter(t => {
+            const txDate = new Date(t.date)
+            return t.category_id === parentCategory.id &&
+                   t.type === 'expense' &&
+                   txDate >= monthStart &&
+                   txDate <= monthEnd &&
+                   (!showComparison.value || txDate.getDate() <= currentDay.value)
+          })
           
           const actual = categoryTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
           const budgetAmount = budget ? parseFloat(budget.amount) : 0
@@ -793,10 +909,12 @@ export default defineComponent({
           // Get all transactions for child categories
           const allChildTransactions = transactions.value.filter(t => {
             const cat = categories.value.find(c => c.id === t.category_id)
+            const txDate = new Date(t.date)
             return cat && cat.parent_id === parentCategory.id &&
                    t.type === 'expense' &&
-                   new Date(t.date) >= monthStart &&
-                   new Date(t.date) <= monthEnd
+                   txDate >= monthStart &&
+                   txDate <= monthEnd &&
+                   (!showComparison.value || txDate.getDate() <= currentDay.value)
           })
           
           groupActual = allChildTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
@@ -917,13 +1035,123 @@ export default defineComponent({
       })
     }
 
+    const formatPercent = (value) => {
+      return `${(value * 100).toFixed(1)}%`
+    }
+
+    // Comparison calculations
+    const currentMonthBudget = computed(() => {
+      return totalExpenses.value.budget
+    })
+
+    const currentMonthActual = computed(() => {
+      return totalExpenses.value.actual
+    })
+
+    const currentMonthProgress = computed(() => {
+      return currentMonthBudget.value - currentMonthActual.value
+    })
+
+    const currentMonthProgressPercent = computed(() => {
+      if (currentMonthBudget.value === 0) return 0
+      return currentMonthProgress.value / currentMonthBudget.value
+    })
+
+    // Last month comparison (same day)
+    const lastMonthData = computed(() => {
+      if (!showComparison.value) return { budget: 0, actual: 0 }
+      
+      const lastMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
+      const lastMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth(), 0)
+      const lastMonthStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1)
+      const dayOfMonth = currentDate.getDate()
+      
+      // Get transactions up to same day last month
+      const lastMonthTransactions = transactions.value.filter(t => {
+        const txDate = new Date(t.date)
+        return txDate >= lastMonthStart &&
+               txDate <= lastMonthEnd &&
+               txDate.getDate() <= dayOfMonth &&
+               t.type === 'expense'
+      })
+      
+      // Get budgets for last month - need to check if budget was active during that month
+      // For monthly budgets, check if start_date is in that month or before
+      const lastMonthBudgets = budgets.value.filter(b => {
+        if (b.period !== 'monthly') return false
+        const budgetStart = new Date(b.start_date)
+        // Budget is valid if it started on or before the last day of last month
+        return budgetStart <= lastMonthEnd
+      })
+      
+      // Calculate budget total by category
+      let budgetTotal = 0
+      expenseCategoryOptions.value.forEach(parentCategory => {
+        const childCategories = getChildCategories(parentCategory.id)
+        if (childCategories.length === 0) {
+          const budget = lastMonthBudgets.find(b => b.category_id === parentCategory.id)
+          if (budget) budgetTotal += parseFloat(budget.amount || 0)
+        } else {
+          childCategories.forEach(childCategory => {
+            const budget = lastMonthBudgets.find(b => b.category_id === childCategory.id)
+            if (budget) budgetTotal += parseFloat(budget.amount || 0)
+          })
+        }
+      })
+      
+      const actual = lastMonthTransactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount) || 0), 0)
+      
+      return { budget: budgetTotal, actual }
+    })
+
+    const lastMonthBudget = computed(() => lastMonthData.value.budget)
+    const lastMonthActual = computed(() => lastMonthData.value.actual)
+    const lastMonthProgress = computed(() => lastMonthBudget.value - lastMonthActual.value)
+    const lastMonthProgressPercent = computed(() => {
+      if (lastMonthBudget.value === 0) return 0
+      return lastMonthProgress.value / lastMonthBudget.value
+    })
+
+    // Trend calculations
+    const trendPercent = computed(() => {
+      if (lastMonthProgress.value === 0) return 0
+      return (currentMonthProgress.value - lastMonthProgress.value) / Math.abs(lastMonthProgress.value)
+    })
+
+    const trendIcon = computed(() => {
+      if (trendPercent.value > 0.05) return 'trending_up'
+      if (trendPercent.value < -0.05) return 'trending_down'
+      return 'trending_flat'
+    })
+
+    const trendColor = computed(() => {
+      if (trendPercent.value > 0.05) return 'positive'
+      if (trendPercent.value < -0.05) return 'negative'
+      return 'grey-6'
+    })
+
+    const trendText = computed(() => {
+      if (trendPercent.value > 0.05) return 'Improving'
+      if (trendPercent.value < -0.05) return 'Declining'
+      return 'Stable'
+    })
+
     const loadBudgets = async () => {
       try {
+        console.log('🟢 [Budget] Loading budgets...')
         budgets.value = await firebaseApi.getBudgets()
+        console.log('✅ [Budget] Loaded budgets:', budgets.value.length)
       } catch (err) {
+        console.error('❌ [Budget] Failed to load budgets:', err)
+        console.error('❌ [Budget] Error details:', {
+          message: err.message,
+          stack: err.stack,
+          error: err
+        })
         $q.notify({
           type: 'negative',
-          message: 'Failed to load budgets'
+          message: `Failed to load budgets: ${err.message || 'Unknown error'}`,
+          timeout: 5000
         })
       }
     }
@@ -941,7 +1169,17 @@ export default defineComponent({
 
     const loadTransactions = async () => {
       try {
-        transactions.value = await firebaseApi.getTransactions({ period: 'monthly' })
+        // Load transactions for the last 2 months to support comparison
+        const { monthStart } = selectedMonthRange.value
+        const twoMonthsAgo = new Date(monthStart.getFullYear(), monthStart.getMonth() - 2, 1)
+        const monthEnd = selectedMonthRange.value.monthEnd
+        
+        // Get all transactions (we'll filter by date in computed properties)
+        const allTransactions = await firebaseApi.getTransactions()
+        transactions.value = allTransactions.filter(t => {
+          const txDate = new Date(t.date)
+          return txDate >= twoMonthsAgo && txDate <= monthEnd
+        })
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -1086,6 +1324,12 @@ export default defineComponent({
       })
     }
 
+    const onMonthChange = async () => {
+      loading.value = true
+      await loadTransactions()
+      loading.value = false
+    }
+
     onMounted(async () => {
       loading.value = true
       await Promise.all([
@@ -1121,12 +1365,30 @@ export default defineComponent({
       hideZeroActuals,
       getChildCategories,
       formatCurrency,
+      formatPercent,
       cancelAddBudget,
       onAddBudget,
       editBudget,
       cancelEditBudget,
       onSaveBudget,
-      deleteBudget
+      deleteBudget,
+      selectedMonth,
+      monthOptions,
+      showComparison,
+      currentDay,
+      currentMonthBudget,
+      currentMonthActual,
+      currentMonthProgress,
+      currentMonthProgressPercent,
+      lastMonthBudget,
+      lastMonthActual,
+      lastMonthProgress,
+      lastMonthProgressPercent,
+      trendPercent,
+      trendIcon,
+      trendColor,
+      trendText,
+      onMonthChange
     }
   }
 })

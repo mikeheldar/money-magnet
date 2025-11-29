@@ -241,10 +241,18 @@ export default {
           position: 'top'
         })
 
+        console.log('🟢 [Admin] Starting batch categorization for', allTransactions.length, 'transactions')
         const response = await firebaseApi.categorizeTransactionsBatch(allTransactions)
+        console.log('✅ [Admin] N8N response received:', {
+          success: response.success,
+          count: response.count,
+          resultsCount: response.results?.length || 0,
+          firstResult: response.results?.[0] || null
+        })
         
         // Process results
         if (response.results && Array.isArray(response.results)) {
+          console.log('🟢 [Admin] Processing', response.results.length, 'categorization results')
           results.value = response.results.map(result => ({
             ...result,
             status: result.category_id ? 'success' : 'no_match'
@@ -256,21 +264,37 @@ export default {
           
           let successCount = 0
           let errorCount = 0
+          let skippedCount = 0
 
-          for (const result of response.results) {
+          console.log('🟢 [Admin] Starting to update transactions in Firestore...')
+          for (let i = 0; i < response.results.length; i++) {
+            const result = response.results[i]
             const transactionId = result.transaction_id || result.id
+            
+            console.log(`🟢 [Admin] Processing result ${i + 1}/${response.results.length}:`, {
+              transaction_id: transactionId,
+              category_id: result.category_id,
+              category_name: result.category_name,
+              source: result.source || result.category_source,
+              confidence: result.confidence
+            })
+            
             if (result.category_id && transactionId) {
               try {
                 // Use category_name from result, or fetch it if missing
                 let categoryName = result.category_name || null
                 if (!categoryName && result.category_id) {
+                  console.log(`🟡 [Admin] Category name missing, fetching for category_id: ${result.category_id}`)
                   try {
                     const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
                     if (categoryDoc.exists()) {
                       categoryName = categoryDoc.data().name
+                      console.log(`✅ [Admin] Fetched category name: ${categoryName}`)
+                    } else {
+                      console.warn(`⚠️ [Admin] Category document not found: ${result.category_id}`)
                     }
                   } catch (catError) {
-                    console.warn(`Could not fetch category name for ${result.category_id}:`, catError)
+                    console.error(`❌ [Admin] Error fetching category name for ${result.category_id}:`, catError)
                   }
                 }
 
@@ -292,16 +316,35 @@ export default {
                   updateData.category_confidence = result.confidence || 0.8
                 }
                 
+                console.log(`🟢 [Admin] Updating transaction ${transactionId} with:`, updateData)
                 await updateDoc(doc(db, 'transactions', transactionId), updateData)
+                console.log(`✅ [Admin] Successfully updated transaction ${transactionId}`)
                 successCount++
               } catch (error) {
-                console.error(`Failed to update transaction ${transactionId}:`, error)
+                console.error(`❌ [Admin] Failed to update transaction ${transactionId}:`, error)
+                console.error(`❌ [Admin] Error details:`, {
+                  message: error.message,
+                  code: error.code,
+                  stack: error.stack
+                })
                 errorCount++
               }
             } else {
-              console.warn('Skipping transaction update - missing category_id or transaction_id:', result)
+              console.warn(`⚠️ [Admin] Skipping transaction update - missing category_id or transaction_id:`, {
+                transaction_id: transactionId,
+                category_id: result.category_id,
+                result: result
+              })
+              skippedCount++
             }
           }
+          
+          console.log('✅ [Admin] Update complete:', {
+            successCount,
+            errorCount,
+            skippedCount,
+            total: response.results.length
+          })
 
           $q.notify({
             type: successCount > 0 ? 'positive' : 'warning',
@@ -342,10 +385,18 @@ export default {
       results.value = []
 
       try {
+        console.log('🟢 [Admin] Starting batch categorization for', uncategorizedTransactions.value.length, 'uncategorized transactions')
         const response = await firebaseApi.categorizeTransactionsBatch(uncategorizedTransactions.value)
+        console.log('✅ [Admin] N8N response received:', {
+          success: response.success,
+          count: response.count,
+          resultsCount: response.results?.length || 0,
+          firstResult: response.results?.[0] || null
+        })
         
         // Process results
         if (response.results && Array.isArray(response.results)) {
+          console.log('🟢 [Admin] Processing', response.results.length, 'categorization results')
           results.value = response.results.map(result => ({
             ...result,
             status: result.category_id ? 'success' : 'no_match'
@@ -357,21 +408,37 @@ export default {
           
           let successCount = 0
           let errorCount = 0
+          let skippedCount = 0
 
-          for (const result of response.results) {
+          console.log('🟢 [Admin] Starting to update transactions in Firestore...')
+          for (let i = 0; i < response.results.length; i++) {
+            const result = response.results[i]
             const transactionId = result.transaction_id || result.id
+            
+            console.log(`🟢 [Admin] Processing result ${i + 1}/${response.results.length}:`, {
+              transaction_id: transactionId,
+              category_id: result.category_id,
+              category_name: result.category_name,
+              source: result.source || result.category_source,
+              confidence: result.confidence
+            })
+            
             if (result.category_id && transactionId) {
               try {
                 // Use category_name from result, or fetch it if missing
                 let categoryName = result.category_name || null
                 if (!categoryName && result.category_id) {
+                  console.log(`🟡 [Admin] Category name missing, fetching for category_id: ${result.category_id}`)
                   try {
                     const categoryDoc = await getDoc(doc(db, 'categories', result.category_id))
                     if (categoryDoc.exists()) {
                       categoryName = categoryDoc.data().name
+                      console.log(`✅ [Admin] Fetched category name: ${categoryName}`)
+                    } else {
+                      console.warn(`⚠️ [Admin] Category document not found: ${result.category_id}`)
                     }
                   } catch (catError) {
-                    console.warn(`Could not fetch category name for ${result.category_id}:`, catError)
+                    console.error(`❌ [Admin] Error fetching category name for ${result.category_id}:`, catError)
                   }
                 }
 
@@ -393,16 +460,35 @@ export default {
                   updateData.category_confidence = result.confidence || 0.8
                 }
                 
+                console.log(`🟢 [Admin] Updating transaction ${transactionId} with:`, updateData)
                 await updateDoc(doc(db, 'transactions', transactionId), updateData)
+                console.log(`✅ [Admin] Successfully updated transaction ${transactionId}`)
                 successCount++
               } catch (error) {
-                console.error(`Failed to update transaction ${transactionId}:`, error)
+                console.error(`❌ [Admin] Failed to update transaction ${transactionId}:`, error)
+                console.error(`❌ [Admin] Error details:`, {
+                  message: error.message,
+                  code: error.code,
+                  stack: error.stack
+                })
                 errorCount++
               }
             } else {
-              console.warn('Skipping transaction update - missing category_id or transaction_id:', result)
+              console.warn(`⚠️ [Admin] Skipping transaction update - missing category_id or transaction_id:`, {
+                transaction_id: transactionId,
+                category_id: result.category_id,
+                result: result
+              })
+              skippedCount++
             }
           }
+          
+          console.log('✅ [Admin] Update complete:', {
+            successCount,
+            errorCount,
+            skippedCount,
+            total: response.results.length
+          })
 
           $q.notify({
             type: successCount > 0 ? 'positive' : 'warning',

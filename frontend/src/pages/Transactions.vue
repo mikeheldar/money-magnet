@@ -368,6 +368,48 @@
                   </div>
                 </q-td>
 
+                <q-td v-if="editingId === props.row.id" class="recurring-cell">
+                  <div class="column q-gutter-xs">
+                    <q-toggle
+                      v-model="editingTransaction.recurring"
+                      label="Recurring"
+                      dense
+                      color="primary"
+                    />
+                    <q-select
+                      v-if="editingTransaction.recurring"
+                      v-model="editingTransaction.recurring_frequency"
+                      :options="[
+                        { label: 'Weekly', value: 'weekly' },
+                        { label: 'Monthly', value: 'monthly' },
+                        { label: 'Yearly', value: 'yearly' }
+                      ]"
+                      option-label="label"
+                      option-value="value"
+                      emit-value
+                      map-options
+                      dense
+                      outlined
+                      hide-bottom-space
+                      placeholder="Frequency"
+                    />
+                  </div>
+                </q-td>
+                <q-td v-else class="recurring-cell">
+                  <div class="column items-center">
+                    <q-icon
+                      v-if="props.row.recurring"
+                      name="repeat"
+                      :color="props.row.recurring_frequency === 'weekly' ? 'blue' : props.row.recurring_frequency === 'monthly' ? 'green' : 'orange'"
+                      size="20px"
+                    />
+                    <span v-if="props.row.recurring" class="text-caption">
+                      {{ props.row.recurring_frequency || 'N/A' }}
+                    </span>
+                    <span v-else class="text-grey-6 text-caption">-</span>
+                  </div>
+                </q-td>
+
                 <q-td>
                   <div v-if="editingId === props.row.id">
                     <q-btn
@@ -508,6 +550,16 @@ export default defineComponent({
         classes: 'category-cell'
       },
       { 
+        name: 'recurring', 
+        label: 'Recurring', 
+        field: 'recurring', 
+        align: 'center', 
+        sortable: true,
+        headerClasses: 'text-weight-bold bg-grey-2',
+        style: 'width: 120px; min-width: 120px;',
+        classes: 'recurring-cell'
+      },
+      { 
         name: 'actions', 
         label: 'Actions', 
         field: 'actions', 
@@ -526,7 +578,9 @@ export default defineComponent({
       description: '',
       merchant: '',
       category_id: null,
-      account_id: null
+      account_id: null,
+      recurring: false,
+      recurring_frequency: null
     })
 
     const editingTransaction = ref({
@@ -540,7 +594,9 @@ export default defineComponent({
       account_id: null,
       category_source: null,
       original_category_id: null,
-      original_merchant: null
+      original_merchant: null,
+      recurring: false,
+      recurring_frequency: null
     })
 
     const accountOptions = ref([])
@@ -878,7 +934,9 @@ export default defineComponent({
         description: '',
         merchant: '',
         category_id: null,
-        account_id: null
+        account_id: null,
+        recurring: false,
+        recurring_frequency: null
       }
     }
 
@@ -900,7 +958,9 @@ export default defineComponent({
       try {
         const transactionData = {
           ...newTransaction.value,
-          amount: parseFloat(newTransaction.value.amount)
+          amount: parseFloat(newTransaction.value.amount),
+          recurring: newTransaction.value.recurring || false,
+          recurring_frequency: newTransaction.value.recurring ? (newTransaction.value.recurring_frequency || null) : null
         }
         
         console.log('🔵 [Transactions Page] Calling firebaseApi.createTransaction...')
@@ -952,7 +1012,9 @@ export default defineComponent({
         account_id: transaction.account_id || null,
         category_source: transaction.category_source || null,
         original_category_id: transaction.category_id || null,
-        original_merchant: transaction.merchant || ''
+        original_merchant: transaction.merchant || '',
+        recurring: transaction.recurring || false,
+        recurring_frequency: transaction.recurring_frequency || null
       }
     }
 
@@ -969,7 +1031,9 @@ export default defineComponent({
         account_id: null,
         category_source: null,
         original_category_id: null,
-        original_merchant: null
+        original_merchant: null,
+        recurring: false,
+        recurring_frequency: null
       }
     }
 
@@ -1036,7 +1100,9 @@ export default defineComponent({
         // Remove AI indicators when user manually changes category
         const updateData = {
           ...editingTransaction.value,
-          amount: parseFloat(editingTransaction.value.amount)
+          amount: parseFloat(editingTransaction.value.amount),
+          recurring: editingTransaction.value.recurring || false,
+          recurring_frequency: editingTransaction.value.recurring ? (editingTransaction.value.recurring_frequency || null) : null
         }
         
         // Remove AI indicators if category was changed or confirmed

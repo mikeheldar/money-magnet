@@ -1279,6 +1279,8 @@ exports.getBalanceSnapshots = onCall(async (request) => {
   const { account_id } = request.data;
 
   try {
+    console.log('🟢 [getBalanceSnapshots] Fetching snapshots for user:', userId, 'account_id:', account_id);
+    
     const snapshotsRef = admin.firestore().collection('balance_snapshots');
     let query = snapshotsRef.where('user_id', '==', userId);
 
@@ -1286,19 +1288,42 @@ exports.getBalanceSnapshots = onCall(async (request) => {
       query = query.where('account_id', '==', account_id);
     }
 
-    query = query.orderBy('date', 'desc');
+    // Try to order by date, but handle if index doesn't exist
+    try {
+      query = query.orderBy('date', 'desc');
+      console.log('🟢 [getBalanceSnapshots] Query with orderBy');
+    } catch (orderError) {
+      console.warn('⚠️ [getBalanceSnapshots] Could not order by date, will sort in memory:', orderError.message);
+    }
 
     const snapshot = await query.get();
+    console.log('✅ [getBalanceSnapshots] Query executed, found', snapshot.docs.length, 'snapshots');
 
-    const snapshots = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    let snapshots = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data
+      };
+    });
 
+    // Sort in memory if orderBy failed
+    snapshots.sort((a, b) => {
+      const dateA = a.date || '';
+      const dateB = b.date || '';
+      return dateB.localeCompare(dateA); // Descending order
+    });
+
+    console.log('✅ [getBalanceSnapshots] Returning', snapshots.length, 'snapshots');
     return { snapshots };
   } catch (error) {
-    console.error('Error getting balance snapshots:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to get balance snapshots', error);
+    console.error('❌ [getBalanceSnapshots] Error getting balance snapshots:', error);
+    console.error('❌ [getBalanceSnapshots] Error details:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
+    throw new functions.https.HttpsError('internal', `Failed to get balance snapshots: ${error.message}`, error);
   }
 });
 

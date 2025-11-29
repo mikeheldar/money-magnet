@@ -126,6 +126,21 @@
           </q-item-section>
         </q-item>
 
+        <q-item
+          clickable
+          v-ripple
+          to="/recurring"
+        >
+          <q-item-section avatar>
+            <q-icon name="repeat" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Recurring</q-item-label>
+            <q-item-label caption>Recurring Transactions</q-item-label>
+          </q-item-section>
+        </q-item>
+
         <q-separator spaced />
 
         <q-item-label

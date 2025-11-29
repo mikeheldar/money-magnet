@@ -959,7 +959,12 @@ export default {
   async getBudgets() {
     try {
       const userId = auth.currentUser?.uid
-      if (!userId) throw new Error('Not authenticated')
+      if (!userId) {
+        console.error('❌ [FirebaseAPI] getBudgets: Not authenticated')
+        throw new Error('Not authenticated')
+      }
+
+      console.log('🟢 [FirebaseAPI] getBudgets: Fetching budgets for user:', userId)
 
       let q = query(
         collection(db, 'budgets'),
@@ -968,15 +973,46 @@ export default {
       
       try {
         q = query(q, orderBy('created_at', 'desc'))
+        console.log('🟢 [FirebaseAPI] getBudgets: Query with orderBy')
       } catch (e) {
-        console.warn('Index for budgets not found, will sort in memory')
+        console.warn('⚠️ [FirebaseAPI] getBudgets: Index for budgets not found, will sort in memory:', e.message)
       }
       
+      console.log('🟢 [FirebaseAPI] getBudgets: Executing query...')
       const snapshot = await getDocs(q)
-      const budgets = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
+      console.log('✅ [FirebaseAPI] getBudgets: Query executed, found', snapshot.docs.length, 'budgets')
+      
+      const budgets = snapshot.docs.map(doc => {
+        const data = doc.data()
+        console.log('📄 [FirebaseAPI] getBudgets: Budget doc:', {
+          id: doc.id,
+          category_id: data.category_id,
+          amount: data.amount,
+          period: data.period,
+          start_date: data.start_date
+        })
+        return {
+          id: doc.id,
+          ...data
+        }
+      })
+      
+      console.log('✅ [FirebaseAPI] getBudgets: Returning', budgets.length, 'budgets')
+      
+      // Sort in memory if orderBy failed
+      budgets.sort((a, b) => {
+        const aTime = a.created_at?.toMillis?.() || a.created_at?.seconds || 0
+        const bTime = b.created_at?.toMillis?.() || b.created_at?.seconds || 0
+        return bTime - aTime
+      })
+      
+      return budgets
+    } catch (error) {
+      console.error('❌ [FirebaseAPI] getBudgets error:', error)
+      const errorMsg = handleFirestoreError(error, 'getBudgets')
+      throw new Error(`Failed to fetch budgets: ${errorMsg}`)
+    }
+  },
       
       // Sort in memory if orderBy failed
       budgets.sort((a, b) => {
@@ -1454,6 +1490,8 @@ export default {
         throw new Error('Transactions array is required and must not be empty')
       }
 
+      console.log('🟢 [FirebaseAPI] Starting batch categorization for', transactions.length, 'transactions')
+      
       // Prepare transactions for N8N (only send necessary fields)
       const payload = transactions.map(tx => ({
         transaction_id: tx.id || tx.transaction_id,
@@ -1465,17 +1503,19 @@ export default {
         date: tx.date || ''
       }))
 
-      // Get N8N webhook URL from Firebase config
-      const { httpsCallable } = await import('firebase/functions')
-      const { getFunctions } = await import('firebase/functions')
-      const functions = getFunctions()
-      
-      // Call Firebase function that will forward to N8N
-      // For now, we'll call N8N directly from frontend
-      // In production, you might want a Firebase function to handle this
-      
+      console.log('🟢 [FirebaseAPI] Prepared payload:', {
+        count: payload.length,
+        firstTransaction: payload[0],
+        sampleIds: payload.slice(0, 5).map(t => t.transaction_id)
+      })
+
       // Get N8N webhook URL - you'll need to configure this
       const N8N_WEBHOOK_URL = 'https://money-magnet-cf5a4.app.n8n.cloud/webhook/categorize-transactions-batch'
+      
+      console.log('🟢 [FirebaseAPI] Sending request to N8N:', {
+        url: N8N_WEBHOOK_URL,
+        transactionCount: payload.length
+      })
       
       const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
@@ -1485,13 +1525,52 @@ export default {
         body: JSON.stringify({ transactions: payload })
       })
 
+      console.log('🟢 [FirebaseAPI] N8N response status:', {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      })
+
       if (!response.ok) {
-        throw new Error(`N8N request failed: ${response.status} ${response.statusText}`)
+        const errorText = await response.text()
+        console.error('❌ [FirebaseAPI] N8N request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        })
+        throw new Error(`N8N request failed: ${response.status} ${response.statusText} - ${errorText}`)
       }
 
       const result = await response.json()
+      console.log('✅ [FirebaseAPI] N8N response received:', {
+        success: result.success,
+        count: result.count,
+        resultsCount: result.results?.length || 0,
+        firstResult: result.results?.[0] || null,
+        sampleResults: result.results?.slice(0, 3) || []
+      })
+      
+      // Log sample of categorized results
+      if (result.results && result.results.length > 0) {
+        const categorized = result.results.filter(r => r.category_id)
+        const uncategorized = result.results.filter(r => !r.category_id)
+        console.log('📊 [FirebaseAPI] Categorization summary:', {
+          total: result.results.length,
+          categorized: categorized.length,
+          uncategorized: uncategorized.length,
+          categorizedSample: categorized.slice(0, 3),
+          uncategorizedSample: uncategorized.slice(0, 3)
+        })
+      }
+      
       return result
     } catch (error) {
+      console.error('❌ [FirebaseAPI] Error in categorizeTransactionsBatch:', {
+        message: error.message,
+        stack: error.stack,
+        error: error
+      })
       throw new Error(`Failed to categorize transactions batch: ${error.message}`)
     }
   },
@@ -1500,20 +1579,37 @@ export default {
   async createBalanceSnapshot(account_id, date) {
     try {
       const userId = auth.currentUser?.uid
-      if (!userId) throw new Error('Not authenticated')
+      if (!userId) {
+        console.error('❌ [FirebaseAPI] createBalanceSnapshot: Not authenticated')
+        throw new Error('Not authenticated')
+      }
 
+      console.log('🟢 [FirebaseAPI] createBalanceSnapshot: Creating snapshot for account:', account_id)
+      
       const { httpsCallable } = await import('firebase/functions')
       const { getFunctions } = await import('firebase/functions')
       const functions = getFunctions()
       const createBalanceSnapshotFn = httpsCallable(functions, 'createBalanceSnapshot')
+
+      console.log('🟢 [FirebaseAPI] createBalanceSnapshot: Calling function with:', {
+        account_id,
+        date: date || null
+      })
 
       const result = await createBalanceSnapshotFn({
         account_id,
         date: date || null // If not provided, uses current date
       })
 
+      console.log('✅ [FirebaseAPI] createBalanceSnapshot: Success:', result.data)
       return result.data
     } catch (error) {
+      console.error('❌ [FirebaseAPI] createBalanceSnapshot error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        stack: error.stack
+      })
       throw new Error(`Failed to create balance snapshot: ${error.message}`)
     }
   },
@@ -1521,8 +1617,13 @@ export default {
   async getBalanceSnapshots(account_id) {
     try {
       const userId = auth.currentUser?.uid
-      if (!userId) throw new Error('Not authenticated')
+      if (!userId) {
+        console.error('❌ [FirebaseAPI] getBalanceSnapshots: Not authenticated')
+        throw new Error('Not authenticated')
+      }
 
+      console.log('🟢 [FirebaseAPI] getBalanceSnapshots: Fetching snapshots for account:', account_id || 'all')
+      
       const { httpsCallable } = await import('firebase/functions')
       const { getFunctions } = await import('firebase/functions')
       const functions = getFunctions()
@@ -1532,8 +1633,15 @@ export default {
         account_id: account_id || null // If not provided, gets all accounts
       })
 
+      console.log('✅ [FirebaseAPI] getBalanceSnapshots: Success, found', result.data.snapshots?.length || 0, 'snapshots')
       return result.data.snapshots || []
     } catch (error) {
+      console.error('❌ [FirebaseAPI] getBalanceSnapshots error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        stack: error.stack
+      })
       throw new Error(`Failed to get balance snapshots: ${error.message}`)
     }
   }
