@@ -287,7 +287,7 @@
                         End of Month
                       </q-badge>
                       <span v-if="selectedSnapshot" class="text-caption text-grey-6 q-ml-sm">
-                        ({{ selectedSnapshot.snapshots.length }} account{{ selectedSnapshot.snapshots.length !== 1 ? 's' : '' }})
+                        ({{ selectedSnapshot.snapshots?.length || 0 }} account{{ (selectedSnapshot.snapshots?.length || 0) !== 1 ? 's' : '' }})
                       </span>
                     </div>
                   </div>
@@ -701,7 +701,7 @@ export default defineComponent({
 
     const loadSnapshots = async () => {
       try {
-        const allSnapshots = await firebaseApi.getBalanceSnapshots()
+        const allSnapshots = (await firebaseApi.getBalanceSnapshots()) || []
         
         // Group snapshots by date and get unique dates
         const snapshotsByDate = {}
