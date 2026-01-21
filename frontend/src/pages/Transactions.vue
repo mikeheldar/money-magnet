@@ -46,6 +46,20 @@
                   label="Uncategorized"
                   @click="showUncategorized = !showUncategorized"
                 />
+                <q-btn
+                  color="secondary"
+                  icon="upload_file"
+                  label="Import CSV"
+                  @click="$refs.fileInput.click()"
+                  :loading="importing"
+                />
+                <input
+                  type="file"
+                  ref="fileInput"
+                  accept=".csv"
+                  style="display: none"
+                  @change="importTransactions"
+                />
                 <q-space />
                 <q-input
                   v-model="filter"
@@ -459,6 +473,7 @@ import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 import { auth, db } from '../config/firebase'
 import { collection, addDoc, query, where, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
+import Papa from 'papaparse'
 
 export default defineComponent({
   name: 'TransactionsPage',
@@ -475,6 +490,8 @@ export default defineComponent({
     const editingId = ref(null)
     const categoryUpdating = ref({}) // Track which transactions are updating categories
     const showUncategorized = ref(false)
+    const fileInput = ref(null)
+    const importing = ref(false)
     
     const filter = ref('')
     
@@ -1167,6 +1184,115 @@ export default defineComponent({
       loadTransactions()
     })
 
+    const importTransactions = (event) => {
+      const file = event.target.files[0]
+      if (!file) return
+
+      importing.value = true
+      
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          try {
+            if (results.errors.length) {
+              console.warn('CSV Parse Errors:', results.errors)
+            }
+            
+            const rawTransactions = results.data
+            if (rawTransactions.length === 0) {
+              $q.notify({ type: 'warning', message: 'No transactions found in file' })
+              return
+            }
+
+            // 1. Find date range
+            const dates = rawTransactions
+              .map(row => row.Date)
+              .filter(d => d)
+              .sort()
+            
+            if (dates.length === 0) throw new Error('No valid dates found')
+            
+            const minDate = dates[0]
+            const maxDate = dates[dates.length - 1]
+            
+            console.log(`Checking duplicates from ${minDate} to ${maxDate}`)
+            
+            // 2. Fetch existing for dedupe
+            const existing = await firebaseApi.getTransactionsByDateRange(minDate, maxDate)
+            const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
+            
+            // 3. Filter & Map
+            const newTransactions = []
+            let skippedCount = 0
+            
+            // fetch fresh accounts map
+            const accountMap = new Map(accounts.value.map(a => [a.name.toLowerCase(), a.id]))
+
+            for (const row of rawTransactions) {
+              if (!row.Date || !row.Amount) continue
+              
+              const amount = parseFloat(row.Amount)
+              // CSV key based on exact string match used in Set
+              const key = `${row.Date}|${amount.toFixed(2)}|${row.Merchant}`
+              
+              if (existingSet.has(key)) {
+                skippedCount++
+                continue
+              }
+              
+              // Resolve Account ID
+              let accountId = null
+              if (row.Account) {
+                // Try fuzzy or direct match
+                const csvAcc = row.Account.toLowerCase()
+                // Simple match: contains
+                for (const [name, id] of accountMap.entries()) {
+                  if (csvAcc.includes(name) || name.includes(csvAcc)) {
+                    accountId = id
+                    break
+                  }
+                }
+              }
+
+              newTransactions.push({
+                date: row.Date,
+                merchant: row.Merchant || 'Unknown',
+                description: row.Original_Statement || row.Notes || '',
+                amount: Math.abs(amount), 
+                type: amount < 0 ? 'expense' : 'income', 
+                category_id: null,
+                account_id: accountId,
+                status: 'pending' 
+              })
+            }
+            
+            if (newTransactions.length === 0) {
+              $q.notify({ type: 'info', message: `All ${skippedCount} transactions were duplicates.` })
+              return
+            }
+            
+            // 4. Batch Upload
+            await firebaseApi.batchCreateTransactions(newTransactions)
+            
+            $q.notify({ 
+              type: 'positive', 
+              message: `Imported ${newTransactions.length} transactions. Skipped ${skippedCount} duplicates.`
+            })
+            
+            loadTransactions() // Refresh table
+            
+          } catch (err) {
+            console.error(err)
+            $q.notify({ type: 'negative', message: 'Import failed: ' + err.message })
+          } finally {
+            importing.value = false
+            if (fileInput.value) fileInput.value.value = ''
+          }
+        }
+      })
+    }
+
     return {
       period,
       transactions,
@@ -1200,7 +1326,12 @@ export default defineComponent({
       startEdit,
       cancelEdit,
       onUpdateTransaction,
-      deleteTransaction
+      deleteTransaction,
+      
+      // Import
+      fileInput,
+      importing,
+      importTransactions
     }
   }
 })
