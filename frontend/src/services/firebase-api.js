@@ -224,6 +224,9 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
+      const startTime = Date.now()
+      console.log(`🔍 [CSV Import] getTransactionsByDateRange: Fetching existing transactions from ${startDate} to ${endDate}...`)
+
       const q = query(
         collection(db, 'transactions'),
         where('user_id', '==', userId),
@@ -232,11 +235,16 @@ export default {
       )
 
       const snapshot = await getDocs(q)
-      return snapshot.docs.map(doc => ({
+      const elapsed = Date.now() - startTime
+      const results = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
         date: toDateString(doc.data().date)
       }))
+
+      console.log(`✅ [CSV Import] getTransactionsByDateRange: Fetched ${results.length} existing transactions in ${elapsed}ms`)
+
+      return results
     } catch (error) {
       const errorMsg = handleFirestoreError(error, 'getTransactionsByDateRange')
       throw new Error(`Failed to fetch transactions by date range: ${errorMsg}`)
@@ -248,25 +256,41 @@ export default {
       const userId = auth.currentUser?.uid
       if (!userId) throw new Error('Not authenticated')
 
-      const batch = writeBatch(db)
-      const results = []
+      // Firestore limit: 500 ops per batch, ~10MB total. Use 400 to be safe.
+      const BATCH_SIZE = 400
+      const allResults = []
+      const totalBatches = Math.ceil(transactions.length / BATCH_SIZE)
 
-      transactions.forEach(transaction => {
-        const docRef = doc(collection(db, 'transactions'))
-        const transactionData = {
-          ...transaction,
-          user_id: userId,
-          created_at: serverTimestamp(),
-          updated_at: serverTimestamp()
-        }
+      console.log(`📤 [CSV Import] batchCreateTransactions: ${transactions.length} transactions in ${totalBatches} batch(es) of ${BATCH_SIZE}`)
 
-        batch.set(docRef, transactionData)
-        results.push({ id: docRef.id, ...transactionData })
-      })
+      for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1
+        const chunk = transactions.slice(i, i + BATCH_SIZE)
 
-      await batch.commit()
-      return results
+        console.log(`📤 [CSV Import] Committing batch ${batchNum}/${totalBatches} (${chunk.length} transactions)...`)
+
+        const batch = writeBatch(db)
+
+        chunk.forEach(transaction => {
+          const docRef = doc(collection(db, 'transactions'))
+          const transactionData = {
+            ...transaction,
+            user_id: userId,
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp()
+          }
+          batch.set(docRef, transactionData)
+          allResults.push({ id: docRef.id, ...transactionData })
+        })
+
+        await batch.commit()
+        console.log(`✅ [CSV Import] Batch ${batchNum}/${totalBatches} committed successfully`)
+      }
+
+      console.log(`✅ [CSV Import] All ${transactions.length} transactions created`)
+      return allResults
     } catch (error) {
+      console.error('❌ [CSV Import] batchCreateTransactions failed:', error)
       throw new Error(`Batch creation failed: ${error.message}`)
     }
   },

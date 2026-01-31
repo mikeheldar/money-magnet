@@ -1189,17 +1189,25 @@ export default defineComponent({
       if (!file) return
 
       importing.value = true
+      const importStartTime = Date.now()
+      console.log('📥 [CSV Import] ========== START ==========')
+      console.log('📥 [CSV Import] File:', file.name, 'Size:', (file.size / 1024).toFixed(1), 'KB')
       
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
           try {
+            const parseTime = Date.now() - importStartTime
+            console.log('📥 [CSV Import] Parse complete in', parseTime, 'ms')
+
             if (results.errors.length) {
-              console.warn('CSV Parse Errors:', results.errors)
+              console.warn('📥 [CSV Import] Parse warnings:', results.errors)
             }
             
             const rawTransactions = results.data
+            console.log('📥 [CSV Import] Raw rows from CSV:', rawTransactions.length)
+
             if (rawTransactions.length === 0) {
               $q.notify({ type: 'warning', message: 'No transactions found in file' })
               return
@@ -1216,11 +1224,16 @@ export default defineComponent({
             const minDate = dates[0]
             const maxDate = dates[dates.length - 1]
             
-            console.log(`Checking duplicates from ${minDate} to ${maxDate}`)
+            console.log('🔍 [CSV Import] Date range:', minDate, 'to', maxDate, '- checking for duplicates...')
+            const dedupeStartTime = Date.now()
             
             // 2. Fetch existing for dedupe
             const existing = await firebaseApi.getTransactionsByDateRange(minDate, maxDate)
+            const dedupeFetchTime = Date.now() - dedupeStartTime
+            console.log('🔍 [CSV Import] Duplicate check: built existingSet from', existing.length, 'transactions in', dedupeFetchTime, 'ms')
+            
             const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
+            console.log('🔍 [CSV Import] existingSet size:', existingSet.size, '- starting filter/map...')
             
             // 3. Filter & Map
             const newTransactions = []
@@ -1228,6 +1241,7 @@ export default defineComponent({
             
             // fetch fresh accounts map
             const accountMap = new Map(accounts.value.map(a => [a.name.toLowerCase(), a.id]))
+            console.log('🔍 [CSV Import] Account map:', accountMap.size, 'accounts')
 
             for (const row of rawTransactions) {
               if (!row.Date || !row.Amount) continue
@@ -1267,13 +1281,24 @@ export default defineComponent({
               })
             }
             
+            const filterTime = Date.now() - dedupeStartTime
+            console.log('✅ [CSV Import] Filter done:', newTransactions.length, 'new,', skippedCount, 'duplicates skipped in', filterTime, 'ms total')
+            
             if (newTransactions.length === 0) {
               $q.notify({ type: 'info', message: `All ${skippedCount} transactions were duplicates.` })
               return
             }
             
             // 4. Batch Upload
+            console.log('📤 [CSV Import] Starting batch upload of', newTransactions.length, 'transactions...')
+            const uploadStartTime = Date.now()
+
             await firebaseApi.batchCreateTransactions(newTransactions)
+            
+            const uploadTime = Date.now() - uploadStartTime
+            const totalTime = Date.now() - importStartTime
+            console.log('✅ [CSV Import] Upload complete in', uploadTime, 'ms. Total import:', totalTime, 'ms')
+            console.log('📥 [CSV Import] ========== DONE ==========')
             
             $q.notify({ 
               type: 'positive', 
@@ -1283,7 +1308,7 @@ export default defineComponent({
             loadTransactions() // Refresh table
             
           } catch (err) {
-            console.error(err)
+            console.error('❌ [CSV Import] Import failed:', err)
             $q.notify({ type: 'negative', message: 'Import failed: ' + err.message })
           } finally {
             importing.value = false
