@@ -43,12 +43,18 @@
       class="bg-grey-1"
     >
       <q-list>
-        <q-item-label
-          header
-          class="text-grey-8"
+        <q-expansion-item
+          v-model="navExpanded"
+          expand-icon="expand_more"
+          expand-icon-class="text-grey"
+          header-class="text-grey-8"
+          default-opened
         >
-          Navigation
-        </q-item-label>
+          <template v-slot:header>
+            <q-item-section>
+              <q-item-label header>Navigation</q-item-label>
+            </q-item-section>
+          </template>
 
         <q-item
           clickable
@@ -141,14 +147,22 @@
           </q-item-section>
         </q-item>
 
+        </q-expansion-item>
+
         <q-separator spaced />
 
-        <q-item-label
-          header
-          class="text-grey-8"
+        <q-expansion-item
+          v-model="tradingExpanded"
+          expand-icon="expand_more"
+          expand-icon-class="text-grey"
+          header-class="text-grey-8"
+          default-opened
         >
-          Trading & AI
-        </q-item-label>
+          <template v-slot:header>
+            <q-item-section>
+              <q-item-label header>Trading & AI</q-item-label>
+            </q-item-section>
+          </template>
 
         <q-item
           clickable
@@ -210,14 +224,22 @@
           </q-item-section>
         </q-item>
 
+        </q-expansion-item>
+
         <q-separator spaced />
 
-        <q-item-label
-          header
-          class="text-grey-8"
+        <q-expansion-item
+          v-model="adminExpanded"
+          expand-icon="expand_more"
+          expand-icon-class="text-grey"
+          header-class="text-grey-8"
+          :default-opened="false"
         >
-          Admin
-        </q-item-label>
+          <template v-slot:header>
+            <q-item-section>
+              <q-item-label header>Admin</q-item-label>
+            </q-item-section>
+          </template>
 
         <q-item
           clickable
@@ -234,14 +256,22 @@
           </q-item-section>
         </q-item>
 
+        </q-expansion-item>
+
         <q-separator spaced />
 
-        <q-item-label
-          header
-          class="text-grey-8"
+        <q-expansion-item
+          v-model="settingsExpanded"
+          expand-icon="expand_more"
+          expand-icon-class="text-grey"
+          header-class="text-grey-8"
+          default-opened
         >
-          Settings
-        </q-item-label>
+          <template v-slot:header>
+            <q-item-section>
+              <q-item-label header>Settings</q-item-label>
+            </q-item-section>
+          </template>
 
         <q-item
           clickable
@@ -272,6 +302,8 @@
             <q-item-label caption>Manage Income & Expense Categories</q-item-label>
           </q-item-section>
         </q-item>
+
+        </q-expansion-item>
 
         <q-separator spaced />
 
@@ -310,6 +342,10 @@
         const router = useRouter()
         const $q = useQuasar()
         const leftDrawerOpen = ref(false)
+        const navExpanded = ref(true)
+        const tradingExpanded = ref(true)
+        const adminExpanded = ref(false)
+        const settingsExpanded = ref(true)
 
         const logout = async () => {
           try {
@@ -331,6 +367,10 @@
 
     return {
       leftDrawerOpen,
+      navExpanded,
+      tradingExpanded,
+      adminExpanded,
+      settingsExpanded,
       logout
     }
   }
