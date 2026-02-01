@@ -460,9 +460,113 @@
               </template>
             </template>
           </q-table>
+
+          <!-- Unmapped Categories Section -->
+          <div v-if="unmappedCategories.length > 0" class="q-mt-md">
+            <q-card flat bordered class="bg-orange-1">
+              <q-card-section>
+                <div class="text-h6 text-orange-9 q-mb-md">
+                  <q-icon name="warning" class="q-mr-sm" />
+                  New Categories from CSV Import ({{ unmappedCategories.length }})
+                </div>
+                <div class="text-caption text-grey-7 q-mb-md">
+                  These categories were found in your CSV but don't match existing categories. 
+                  Map them to existing categories or keep as new categories.
+                </div>
+                <q-list bordered separator>
+                  <q-item v-for="category in unmappedCategories" :key="category.id">
+                    <q-item-section>
+                      <q-item-label>{{ category.name }}</q-item-label>
+                      <q-item-label caption>
+                        Type: {{ category.type || 'N/A' }}
+                      </q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <div class="row q-gutter-sm">
+                        <q-btn
+                          outline
+                          color="primary"
+                          label="Map to Existing"
+                          icon="link"
+                          size="sm"
+                          @click="openCategoryMappingDialog(category)"
+                        />
+                        <q-btn
+                          flat
+                          color="positive"
+                          label="Keep as New"
+                          icon="check"
+                          size="sm"
+                          @click="keepAsNewCategory(category)"
+                        />
+                      </div>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card-section>
+            </q-card>
+          </div>
         </q-card-section>
       </q-card>
     </div>
+
+    <!-- Category Mapping Dialog -->
+    <q-dialog v-model="showCategoryMappingDialog" persistent>
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Map Category</div>
+        </q-card-section>
+
+        <q-card-section v-if="selectedUnmappedCategory">
+          <div class="q-mb-md">
+            <div class="text-subtitle2 text-grey-7">CSV Category Name:</div>
+            <div class="text-h6 text-primary">{{ selectedUnmappedCategory.name }}</div>
+          </div>
+          
+          <q-select
+            v-model="selectedTargetCategoryId"
+            :options="regularCategories.filter(c => !c.parent_id)"
+            option-label="name"
+            option-value="id"
+            emit-value
+            map-options
+            label="Map to existing category"
+            outlined
+            :rules="[val => !!val || 'Please select a category']"
+          >
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section avatar v-if="scope.opt.icon">
+                  <q-icon :name="scope.opt.icon" :style="{ color: getIconColor(scope.opt.icon, scope.opt.parent_id ? 'category' : 'group') }" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.name }}</q-item-label>
+                  <q-item-label caption>
+                    {{ scope.opt.type }} • {{ scope.opt.description || 'No description' }}
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+          
+          <div class="text-caption text-grey-7 q-mt-sm">
+            Future transactions with "{{ selectedUnmappedCategory.name }}" will automatically use the mapped category.
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey" v-close-popup @click="closeCategoryMappingDialog" />
+          <q-btn
+            unelevated
+            label="Save Mapping"
+            color="primary"
+            :loading="savingCategoryMapping"
+            :disable="!selectedTargetCategoryId"
+            @click="saveCategoryMapping"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -629,6 +733,12 @@ export default defineComponent({
     const collapsedGroups = ref({})
     let sortableInstances = []
     
+    // Category mapping state
+    const showCategoryMappingDialog = ref(false)
+    const selectedUnmappedCategory = ref(null)
+    const selectedTargetCategoryId = ref(null)
+    const savingCategoryMapping = ref(false)
+    
     const editingCategory = ref({
       id: null,
       name: '',
@@ -736,6 +846,14 @@ export default defineComponent({
       })
       
       return rows
+    })
+
+    const unmappedCategories = computed(() => {
+      return categories.value.filter(c => c.needs_mapping && c.csv_imported && !c.parent_id) || []
+    })
+
+    const regularCategories = computed(() => {
+      return categories.value.filter(c => !c.needs_mapping || !c.csv_imported) || []
     })
 
     const getCategoriesForGroup = (groupId) => {
@@ -1147,6 +1265,75 @@ export default defineComponent({
       }
     }
 
+    const openCategoryMappingDialog = (category) => {
+      selectedUnmappedCategory.value = category
+      selectedTargetCategoryId.value = null
+      showCategoryMappingDialog.value = true
+    }
+
+    const closeCategoryMappingDialog = () => {
+      showCategoryMappingDialog.value = false
+      selectedUnmappedCategory.value = null
+      selectedTargetCategoryId.value = null
+    }
+
+    const saveCategoryMapping = async () => {
+      if (!selectedUnmappedCategory.value || !selectedTargetCategoryId.value) return
+
+      savingCategoryMapping.value = true
+      try {
+        // Create the mapping
+        await firebaseApi.createCategoryMapping(
+          selectedUnmappedCategory.value.name,
+          selectedTargetCategoryId.value
+        )
+
+        // Update the category to remove needs_mapping flag
+        await firebaseApi.updateCategory(selectedUnmappedCategory.value.id, {
+          needs_mapping: false,
+          mapped_to: selectedTargetCategoryId.value
+        })
+
+        $q.notify({
+          type: 'positive',
+          message: `Category "${selectedUnmappedCategory.value.name}" mapped successfully`,
+          timeout: 3000
+        })
+
+        closeCategoryMappingDialog()
+        await loadCategories()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to save mapping'
+        })
+      } finally {
+        savingCategoryMapping.value = false
+      }
+    }
+
+    const keepAsNewCategory = async (category) => {
+      try {
+        await firebaseApi.updateCategory(category.id, {
+          needs_mapping: false,
+          csv_imported: false
+        })
+
+        $q.notify({
+          type: 'positive',
+          message: `"${category.name}" kept as new category`,
+          timeout: 2000
+        })
+
+        await loadCategories()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to update category'
+        })
+      }
+    }
+
     onMounted(async () => {
       await loadCategories()
       await nextTick()
@@ -1367,7 +1554,17 @@ export default defineComponent({
       editCategoryItem,
       cancelCategoryItem,
       onSaveCategoryItem,
-      deleteCategoryItem
+      deleteCategoryItem,
+      unmappedCategories,
+      regularCategories,
+      showCategoryMappingDialog,
+      selectedUnmappedCategory,
+      selectedTargetCategoryId,
+      savingCategoryMapping,
+      openCategoryMappingDialog,
+      closeCategoryMappingDialog,
+      saveCategoryMapping,
+      keepAsNewCategory
     }
   }
 })

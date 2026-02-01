@@ -318,9 +318,111 @@
               </q-card-section>
             </q-card>
           </div>
+
+          <!-- Unmapped Accounts Section -->
+          <div v-if="unmappedAccounts.length > 0" class="q-mt-md">
+            <q-card flat bordered class="bg-orange-1">
+              <q-card-section>
+                <div class="text-h6 text-orange-9 q-mb-md">
+                  <q-icon name="warning" class="q-mr-sm" />
+                  New Accounts from CSV Import ({{ unmappedAccounts.length }})
+                </div>
+                <div class="text-caption text-grey-7 q-mb-md">
+                  These accounts were found in your CSV but don't match existing accounts. 
+                  Map them to existing accounts or keep as new accounts.
+                </div>
+                <q-list bordered separator>
+                  <q-item v-for="account in unmappedAccounts" :key="account.id">
+                    <q-item-section>
+                      <q-item-label>{{ account.name }}</q-item-label>
+                      <q-item-label caption>
+                        Balance: ${{ formatCurrency(account.balance_current || 0) }}
+                      </q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <div class="row q-gutter-sm">
+                        <q-btn
+                          outline
+                          color="primary"
+                          label="Map to Existing"
+                          icon="link"
+                          size="sm"
+                          @click="openMappingDialog(account)"
+                        />
+                        <q-btn
+                          flat
+                          color="positive"
+                          label="Keep as New"
+                          icon="check"
+                          size="sm"
+                          @click="keepAsNewAccount(account)"
+                        />
+                      </div>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card-section>
+            </q-card>
+          </div>
         </q-card-section>
       </q-card>
     </div>
+
+    <!-- Account Mapping Dialog -->
+    <q-dialog v-model="showMappingDialog" persistent>
+      <q-card style="min-width: 500px">
+        <q-card-section>
+          <div class="text-h6">Map Account</div>
+        </q-card-section>
+
+        <q-card-section v-if="selectedUnmappedAccount">
+          <div class="q-mb-md">
+            <div class="text-subtitle2 text-grey-7">CSV Account Name:</div>
+            <div class="text-h6 text-primary">{{ selectedUnmappedAccount.name }}</div>
+          </div>
+          
+          <q-select
+            v-model="selectedTargetAccountId"
+            :options="regularAccounts"
+            option-label="name"
+            option-value="id"
+            emit-value
+            map-options
+            label="Map to existing account"
+            outlined
+            :rules="[val => !!val || 'Please select an account']"
+          >
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.name }}</q-item-label>
+                  <q-item-label caption>
+                    {{ getAccountTypeName(scope.opt.account_type_id) }} • 
+                    ${{ formatCurrency(scope.opt.balance_current || 0) }}
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+          
+          <div class="text-caption text-grey-7 q-mt-sm">
+            Future transactions from "{{ selectedUnmappedAccount.name }}" will automatically use the mapped account.
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey" v-close-popup @click="closeMappingDialog" />
+          <q-btn
+            unelevated
+            label="Save Mapping"
+            color="primary"
+            :loading="savingMapping"
+            :disable="!selectedTargetAccountId"
+            @click="saveAccountMapping"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -346,6 +448,12 @@ export default defineComponent({
     const comparingSnapshot = ref(false)
     const snapshots = ref([])
     const selectedSnapshotIndex = ref(null)
+    
+    // Account mapping state
+    const showMappingDialog = ref(false)
+    const selectedUnmappedAccount = ref(null)
+    const selectedTargetAccountId = ref(null)
+    const savingMapping = ref(false)
     
     const accountTypeOptions = computed(() => {
       return accountTypes.value.map(type => ({
@@ -422,6 +530,14 @@ export default defineComponent({
 
     const displayRows = computed(() => {
       return accounts.value || []
+    })
+
+    const unmappedAccounts = computed(() => {
+      return accounts.value.filter(a => a.needs_mapping && a.csv_imported) || []
+    })
+
+    const regularAccounts = computed(() => {
+      return accounts.value.filter(a => !a.needs_mapping || !a.csv_imported) || []
     })
 
     const loadAccounts = async () => {
@@ -901,6 +1017,78 @@ export default defineComponent({
       }
     }
 
+    const openMappingDialog = (account) => {
+      selectedUnmappedAccount.value = account
+      selectedTargetAccountId.value = null
+      showMappingDialog.value = true
+    }
+
+    const closeMappingDialog = () => {
+      showMappingDialog.value = false
+      selectedUnmappedAccount.value = null
+      selectedTargetAccountId.value = null
+    }
+
+    const saveAccountMapping = async () => {
+      if (!selectedUnmappedAccount.value || !selectedTargetAccountId.value) return
+
+      savingMapping.value = true
+      try {
+        // Create the mapping
+        await firebaseApi.createAccountMapping(
+          selectedUnmappedAccount.value.name,
+          selectedTargetAccountId.value
+        )
+
+        // Update the account to remove needs_mapping flag
+        await firebaseApi.updateAccount(selectedUnmappedAccount.value.id, {
+          needs_mapping: false,
+          mapped_to: selectedTargetAccountId.value
+        })
+
+        // Optionally delete the unmapped account or keep it for reference
+        // For now, let's just mark it as mapped
+        
+        $q.notify({
+          type: 'positive',
+          message: `Account "${selectedUnmappedAccount.value.name}" mapped successfully`,
+          timeout: 3000
+        })
+
+        closeMappingDialog()
+        await loadAccounts()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to save mapping'
+        })
+      } finally {
+        savingMapping.value = false
+      }
+    }
+
+    const keepAsNewAccount = async (account) => {
+      try {
+        await firebaseApi.updateAccount(account.id, {
+          needs_mapping: false,
+          csv_imported: false
+        })
+
+        $q.notify({
+          type: 'positive',
+          message: `"${account.name}" kept as new account`,
+          timeout: 2000
+        })
+
+        await loadAccounts()
+      } catch (err) {
+        $q.notify({
+          type: 'negative',
+          message: err.message || 'Failed to update account'
+        })
+      }
+    }
+
     onMounted(async () => {
       await loadAccountTypes()
       await loadAccounts()
@@ -946,7 +1134,17 @@ export default defineComponent({
       selectedSnapshotIndex,
       getSnapshotBalance,
       getBalanceChange,
-      formatSnapshotDate
+      formatSnapshotDate,
+      unmappedAccounts,
+      regularAccounts,
+      showMappingDialog,
+      selectedUnmappedAccount,
+      selectedTargetAccountId,
+      savingMapping,
+      openMappingDialog,
+      closeMappingDialog,
+      saveAccountMapping,
+      keepAsNewAccount
     }
   }
 })

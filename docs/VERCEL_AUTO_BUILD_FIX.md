@@ -13,13 +13,9 @@ When you push (check in) code, Vercel should automatically start a new build. If
      - Choose the correct GitHub repo and authorize if asked.
 4. Under **Production Branch**, set it to the branch you push to (usually `main` or `master`).
 
-## 2. Set Root Directory (monorepo only)
+## 2. Root Directory (only for monorepos)
 
-If this app lives in a subfolder (e.g. repo root is `projects` and the app is in `forcash`):
-
-1. **Settings** → **General** → **Root Directory**.
-2. Set to the app folder, e.g. `forcash` (no leading slash).
-3. Save. Vercel will use that folder for `vercel.json` and the build.
+**You only need this if your repo has multiple apps** and Money Magnet lives in a subfolder (e.g. repo root is `projects` and the app is in `money-magnet`). In that case, Vercel may show **Root Directory** under **Settings** → **General** when you first import the project. If you don’t see it, your project is likely using the repo root—leave it as is.
 
 ## 3. Check GitHub webhook
 
@@ -59,7 +55,7 @@ To deploy the latest commit without re-pushing:
 
 - [ ] Vercel project **Settings** → **Git** shows the correct **Connected Git Repository**.
 - [ ] **Production Branch** is correct (e.g. `main`).
-- [ ] If app is in a subfolder, **Root Directory** is set to that folder.
+- [ ] If your repo is a monorepo and you see **Root Directory** in Settings → General, set it to the app folder (e.g. `money-magnet`).
 - [ ] GitHub **Settings** → **Webhooks** has a Vercel webhook with recent **200** deliveries for `push`.
 - [ ] **Ignored Build Step** is not forcing every build to be skipped.
 
@@ -74,4 +70,7 @@ A workflow runs on every push to `main` / `master` and:
 1. **Runs the build** so you get a green check and know the build works.
 2. **Optionally triggers Vercel**: If you add a repo secret **`VERCEL_DEPLOY_HOOK`** with your [Vercel Deploy Hook](https://vercel.com/docs/deployments/deploy-hooks) URL, the workflow will call it after a successful build so Vercel starts a deployment even if the Git webhook didn’t fire.
 
-**If this app lives in a monorepo** (repo root is the parent of `forcash`): move `.github` to the repo root and in the workflow set the default working directory to this app, e.g. `defaults: run: working-directory: forcash`.
+**If this app lives in a monorepo** (repo root is the parent of `money-magnet`): move `.github` to the repo root and in the workflow set the default working directory to this app, e.g. `defaults: run: working-directory: money-magnet`.
+
+---
+*Push a change to trigger Vercel; check Deployments in the dashboard.*

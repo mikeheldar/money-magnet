@@ -1708,6 +1708,118 @@ export default {
       })
       throw new Error(`Failed to get balance snapshots: ${error.message}`)
     }
+  },
+
+  // Account Mappings
+  async getAccountMappings() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const q = query(
+        collection(db, 'account_mappings'),
+        where('user_id', '==', userId)
+      )
+      const snapshot = await getDocs(q)
+      const mappings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      return mappings
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getAccountMappings')
+      throw new Error(`Failed to fetch account mappings: ${errorMsg}`)
+    }
+  },
+
+  async createAccountMapping(csvName, targetAccountId) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const mappingData = {
+        user_id: userId,
+        csv_name: csvName,
+        target_account_id: targetAccountId,
+        created_at: serverTimestamp()
+      }
+
+      const docRef = await addDoc(collection(db, 'account_mappings'), mappingData)
+      return { id: docRef.id, ...mappingData }
+    } catch (error) {
+      throw new Error(`Failed to create account mapping: ${error.message}`)
+    }
+  },
+
+  async deleteAccountMapping(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const mappingRef = doc(db, 'account_mappings', id)
+      const mappingDoc = await getDoc(mappingRef)
+
+      if (!mappingDoc.exists()) throw new Error('Mapping not found')
+      if (mappingDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(mappingRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete account mapping: ${error.message}`)
+    }
+  },
+
+  // Category Mappings
+  async getCategoryMappings() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const q = query(
+        collection(db, 'category_mappings'),
+        where('user_id', '==', userId)
+      )
+      const snapshot = await getDocs(q)
+      const mappings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      return mappings
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getCategoryMappings')
+      throw new Error(`Failed to fetch category mappings: ${errorMsg}`)
+    }
+  },
+
+  async createCategoryMapping(csvName, targetCategoryId) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const mappingData = {
+        user_id: userId,
+        csv_name: csvName,
+        target_category_id: targetCategoryId,
+        created_at: serverTimestamp()
+      }
+
+      const docRef = await addDoc(collection(db, 'category_mappings'), mappingData)
+      return { id: docRef.id, ...mappingData }
+    } catch (error) {
+      throw new Error(`Failed to create category mapping: ${error.message}`)
+    }
+  },
+
+  async deleteCategoryMapping(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const mappingRef = doc(db, 'category_mappings', id)
+      const mappingDoc = await getDoc(mappingRef)
+
+      if (!mappingDoc.exists()) throw new Error('Mapping not found')
+      if (mappingDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(mappingRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete category mapping: ${error.message}`)
+    }
   }
 }
 

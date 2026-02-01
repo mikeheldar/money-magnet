@@ -1235,13 +1235,25 @@ export default defineComponent({
             const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
             console.log('🔍 [CSV Import] existingSet size:', existingSet.size, '- starting filter/map...')
             
-            // 3. Filter & Map
+            // 3. Load account and category mappings
+            const accountMappings = await firebaseApi.getAccountMappings()
+            const categoryMappings = await firebaseApi.getCategoryMappings()
+            const accountMappingMap = new Map(accountMappings.map(m => [m.csv_name.toLowerCase(), m.target_account_id]))
+            const categoryMappingMap = new Map(categoryMappings.map(m => [m.csv_name.toLowerCase(), m.target_category_id]))
+            console.log('🔍 [CSV Import] Account mappings:', accountMappingMap.size, 'Category mappings:', categoryMappingMap.size)
+
+            // Build account and category maps
+            const accountMap = new Map(accounts.value.map(a => [a.name.toLowerCase(), a.id]))
+            const categoryMap = new Map(categories.value.map(c => [c.name.toLowerCase(), c.id]))
+            console.log('🔍 [CSV Import] Existing accounts:', accountMap.size, 'Existing categories:', categoryMap.size)
+
+            // Track new accounts/categories to create
+            const newAccountsToCreate = new Set()
+            const newCategoriesToCreate = new Set()
+            
+            // 4. Filter & Map
             const newTransactions = []
             let skippedCount = 0
-            
-            // fetch fresh accounts map
-            const accountMap = new Map(accounts.value.map(a => [a.name.toLowerCase(), a.id]))
-            console.log('🔍 [CSV Import] Account map:', accountMap.size, 'accounts')
 
             for (const row of rawTransactions) {
               if (!row.Date || !row.Amount) continue
@@ -1258,13 +1270,42 @@ export default defineComponent({
               // Resolve Account ID
               let accountId = null
               if (row.Account) {
-                // Try fuzzy or direct match
-                const csvAcc = row.Account.toLowerCase()
-                // Simple match: contains
-                for (const [name, id] of accountMap.entries()) {
-                  if (csvAcc.includes(name) || name.includes(csvAcc)) {
-                    accountId = id
-                    break
+                const csvAcc = row.Account.toLowerCase().trim()
+                
+                // First check if there's a mapping
+                if (accountMappingMap.has(csvAcc)) {
+                  accountId = accountMappingMap.get(csvAcc)
+                } else {
+                  // Try fuzzy match with existing accounts
+                  for (const [name, id] of accountMap.entries()) {
+                    if (csvAcc.includes(name) || name.includes(csvAcc)) {
+                      accountId = id
+                      break
+                    }
+                  }
+                  
+                  // If no match, mark for creation
+                  if (!accountId) {
+                    newAccountsToCreate.add(row.Account.trim())
+                  }
+                }
+              }
+
+              // Resolve Category ID
+              let categoryId = null
+              if (row.Category) {
+                const csvCat = row.Category.toLowerCase().trim()
+                
+                // First check if there's a mapping
+                if (categoryMappingMap.has(csvCat)) {
+                  categoryId = categoryMappingMap.get(csvCat)
+                } else {
+                  // Try exact match with existing categories
+                  if (categoryMap.has(csvCat)) {
+                    categoryId = categoryMap.get(csvCat)
+                  } else {
+                    // If no match, mark for creation
+                    newCategoriesToCreate.add(row.Category.trim())
                   }
                 }
               }
@@ -1272,24 +1313,76 @@ export default defineComponent({
               newTransactions.push({
                 date: row.Date,
                 merchant: row.Merchant || 'Unknown',
-                description: row.Original_Statement || row.Notes || '',
+                description: row['Original Statement'] || row.Original_Statement || row.Notes || '',
                 amount: Math.abs(amount), 
                 type: amount < 0 ? 'expense' : 'income', 
-                category_id: null,
+                category_id: categoryId,
+                category_name: row.Category || null,
                 account_id: accountId,
+                csv_account_name: row.Account || null,
                 status: 'pending' 
               })
             }
             
+            // 5. Create new accounts and categories
+            console.log('🆕 [CSV Import] New accounts to create:', newAccountsToCreate.size, 'New categories to create:', newCategoriesToCreate.size)
+            
+            const newAccountIds = new Map()
+            for (const accountName of newAccountsToCreate) {
+              try {
+                const newAccount = await firebaseApi.createAccount({
+                  name: accountName,
+                  balance_current: 0,
+                  needs_mapping: true,
+                  csv_imported: true
+                })
+                newAccountIds.set(accountName.toLowerCase(), newAccount.id)
+                console.log('✅ [CSV Import] Created new account:', accountName, newAccount.id)
+              } catch (err) {
+                console.error('❌ [CSV Import] Failed to create account:', accountName, err)
+              }
+            }
+            
+            const newCategoryIds = new Map()
+            for (const categoryName of newCategoriesToCreate) {
+              try {
+                const newCategory = await firebaseApi.createCategory({
+                  name: categoryName,
+                  needs_mapping: true,
+                  csv_imported: true
+                })
+                newCategoryIds.set(categoryName.toLowerCase(), newCategory.id)
+                console.log('✅ [CSV Import] Created new category:', categoryName, newCategory.id)
+              } catch (err) {
+                console.error('❌ [CSV Import] Failed to create category:', categoryName, err)
+              }
+            }
+            
+            // 6. Update transactions with new IDs
+            for (const txn of newTransactions) {
+              if (!txn.account_id && txn.csv_account_name) {
+                const newId = newAccountIds.get(txn.csv_account_name.toLowerCase())
+                if (newId) txn.account_id = newId
+              }
+              if (!txn.category_id && txn.category_name) {
+                const newId = newCategoryIds.get(txn.category_name.toLowerCase())
+                if (newId) txn.category_id = newId
+              }
+              // Clean up temporary fields
+              delete txn.csv_account_name
+              delete txn.category_name
+            }
+            
             const filterTime = Date.now() - dedupeStartTime
             console.log('✅ [CSV Import] Filter done:', newTransactions.length, 'new,', skippedCount, 'duplicates skipped in', filterTime, 'ms total')
+            console.log('✅ [CSV Import] Created', newAccountIds.size, 'new accounts,', newCategoryIds.size, 'new categories')
             
             if (newTransactions.length === 0) {
               $q.notify({ type: 'info', message: `All ${skippedCount} transactions were duplicates.` })
               return
             }
             
-            // 4. Batch Upload
+            // 7. Batch Upload
             console.log('📤 [CSV Import] Starting batch upload of', newTransactions.length, 'transactions...')
             const uploadStartTime = Date.now()
 
@@ -1302,10 +1395,16 @@ export default defineComponent({
             
             $q.notify({ 
               type: 'positive', 
-              message: `Imported ${newTransactions.length} transactions. Skipped ${skippedCount} duplicates.`
+              message: `Imported ${newTransactions.length} transactions. Created ${newAccountIds.size} accounts, ${newCategoryIds.size} categories. Skipped ${skippedCount} duplicates.`,
+              timeout: 5000
             })
             
-            loadTransactions() // Refresh table
+            // Reload data to show new accounts/categories
+            await Promise.all([
+              loadTransactions(),
+              loadCategories(),
+              firebaseApi.getAccounts().then(accs => accounts.value = accs)
+            ])
             
           } catch (err) {
             console.error('❌ [CSV Import] Import failed:', err)
