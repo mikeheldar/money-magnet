@@ -1235,16 +1235,30 @@ export default defineComponent({
             const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
             console.log('🔍 [CSV Import] existingSet size:', existingSet.size, '- starting filter/map...')
             
-            // 3. Load account and category mappings
-            const accountMappings = await firebaseApi.getAccountMappings()
-            const categoryMappings = await firebaseApi.getCategoryMappings()
-            const accountMappingMap = new Map(accountMappings.map(m => [m.csv_name.toLowerCase(), m.target_account_id]))
-            const categoryMappingMap = new Map(categoryMappings.map(m => [m.csv_name.toLowerCase(), m.target_category_id]))
+            // 3. Load account and category mappings (fallback to empty if collections don't exist yet)
+            let accountMappings = []
+            let categoryMappings = []
+            try {
+              accountMappings = await firebaseApi.getAccountMappings()
+              categoryMappings = await firebaseApi.getCategoryMappings()
+            } catch (mappingErr) {
+              console.warn('[CSV Import] Could not load mappings, using empty:', mappingErr.message)
+            }
+            const accountMappingMap = new Map(
+              accountMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_account_id])
+            )
+            const categoryMappingMap = new Map(
+              categoryMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_category_id])
+            )
             console.log('🔍 [CSV Import] Account mappings:', accountMappingMap.size, 'Category mappings:', categoryMappingMap.size)
 
-            // Build account and category maps
-            const accountMap = new Map(accounts.value.map(a => [a.name.toLowerCase(), a.id]))
-            const categoryMap = new Map(categories.value.map(c => [c.name.toLowerCase(), c.id]))
+            // Build account and category maps (skip entries without names)
+            const accountMap = new Map(
+              accounts.value.filter(a => a.name).map(a => [(a.name || '').toLowerCase(), a.id])
+            )
+            const categoryMap = new Map(
+              categories.value.filter(c => c.name).map(c => [(c.name || '').toLowerCase(), c.id])
+            )
             console.log('🔍 [CSV Import] Existing accounts:', accountMap.size, 'Existing categories:', categoryMap.size)
 
             // Track new accounts/categories to create
@@ -1329,14 +1343,15 @@ export default defineComponent({
             
             const newAccountIds = new Map()
             for (const accountName of newAccountsToCreate) {
+              if (!accountName || typeof accountName !== 'string') continue
               try {
                 const newAccount = await firebaseApi.createAccount({
-                  name: accountName,
+                  name: accountName.trim(),
                   balance_current: 0,
                   needs_mapping: true,
                   csv_imported: true
                 })
-                newAccountIds.set(accountName.toLowerCase(), newAccount.id)
+                newAccountIds.set(accountName.toLowerCase().trim(), newAccount.id)
                 console.log('✅ [CSV Import] Created new account:', accountName, newAccount.id)
               } catch (err) {
                 console.error('❌ [CSV Import] Failed to create account:', accountName, err)
@@ -1345,13 +1360,14 @@ export default defineComponent({
             
             const newCategoryIds = new Map()
             for (const categoryName of newCategoriesToCreate) {
+              if (!categoryName || typeof categoryName !== 'string') continue
               try {
                 const newCategory = await firebaseApi.createCategory({
-                  name: categoryName,
+                  name: categoryName.trim(),
                   needs_mapping: true,
                   csv_imported: true
                 })
-                newCategoryIds.set(categoryName.toLowerCase(), newCategory.id)
+                newCategoryIds.set(categoryName.toLowerCase().trim(), newCategory.id)
                 console.log('✅ [CSV Import] Created new category:', categoryName, newCategory.id)
               } catch (err) {
                 console.error('❌ [CSV Import] Failed to create category:', categoryName, err)
@@ -1360,12 +1376,12 @@ export default defineComponent({
             
             // 6. Update transactions with new IDs
             for (const txn of newTransactions) {
-              if (!txn.account_id && txn.csv_account_name) {
-                const newId = newAccountIds.get(txn.csv_account_name.toLowerCase())
+              if (!txn.account_id && txn.csv_account_name && typeof txn.csv_account_name === 'string') {
+                const newId = newAccountIds.get(txn.csv_account_name.toLowerCase().trim())
                 if (newId) txn.account_id = newId
               }
-              if (!txn.category_id && txn.category_name) {
-                const newId = newCategoryIds.get(txn.category_name.toLowerCase())
+              if (!txn.category_id && txn.category_name && typeof txn.category_name === 'string') {
+                const newId = newCategoryIds.get(txn.category_name.toLowerCase().trim())
                 if (newId) txn.category_id = newId
               }
               // Clean up temporary fields
