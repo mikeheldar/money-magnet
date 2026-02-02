@@ -6,16 +6,34 @@
           <div class="row items-center q-mb-md">
             <div class="text-h5" style="color: #3BA99F; font-weight: 600;">Transactions</div>
             <q-space />
-            <q-btn-toggle
-              v-model="period"
-              toggle-color="primary"
-              :options="[
-                { label: 'Weekly', value: 'weekly' },
-                { label: 'Monthly', value: 'monthly' },
-                { label: 'Yearly', value: 'yearly' }
-              ]"
-              @update:model-value="loadTransactions"
-            />
+            <div class="row items-center q-gutter-sm">
+              <template v-if="period !== 'all'">
+                <q-btn flat round dense icon="chevron_left" aria-label="Previous period" @click="goToPrevPeriod" />
+                <span class="text-body2 text-grey-8" style="min-width: 180px; text-align: center;">
+                  {{ getPeriodLabel(period, periodOffset) }}
+                </span>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  icon="chevron_right"
+                  aria-label="Next period"
+                  :disable="isCurrentPeriod(period, periodOffset)"
+                  @click="goToNextPeriod"
+                />
+              </template>
+              <q-btn-toggle
+                v-model="period"
+                toggle-color="primary"
+                :options="[
+                  { label: 'Weekly', value: 'weekly' },
+                  { label: 'Monthly', value: 'monthly' },
+                  { label: 'Yearly', value: 'yearly' },
+                  { label: 'All', value: 'all' }
+                ]"
+                @update:model-value="loadTransactions"
+              />
+            </div>
           </div>
           
           <q-table
@@ -460,6 +478,40 @@
                 </q-td>
               </q-tr>
             </template>
+
+            <template v-slot:no-data>
+              <div class="full-width column items-center q-pa-lg text-grey-7">
+                <q-icon name="info" size="2em" class="q-mb-sm" />
+                <span>{{ getEmptyMessage(period) }}</span>
+                <q-btn
+                  v-if="period !== 'all'"
+                  flat
+                  color="primary"
+                  :label="getLoadPreviousLabel(period)"
+                  icon="expand_less"
+                  class="q-mt-md"
+                  :loading="loadingMore"
+                  @click="loadPreviousPeriod"
+                />
+              </div>
+            </template>
+
+            <template v-slot:bottom>
+              <div v-if="period !== 'all'" class="row full-width items-center justify-between q-pa-sm">
+                <q-btn
+                  flat
+                  color="primary"
+                  :label="getLoadPreviousLabel(period)"
+                  icon="expand_less"
+                  :loading="loadingMore"
+                  @click="loadPreviousPeriod"
+                />
+                <span v-if="loadedRangeStart && loadedRangeEnd" class="text-caption text-grey-7">
+                  Showing {{ displayRows.length }} transaction{{ displayRows.length !== 1 ? 's' : '' }}
+                  <span v-if="loadedRangeStart !== loadedRangeEnd"> ({{ loadedRangeStart }} – {{ loadedRangeEnd }})</span>
+                </span>
+              </div>
+            </template>
           </q-table>
         </q-card-section>
       </q-card>
@@ -480,7 +532,12 @@ export default defineComponent({
   setup() {
     const $q = useQuasar()
     const period = ref('monthly')
+    const periodOffset = ref(0) // 0 = current period, -1 = previous, etc.
     const transactions = ref([])
+    const loadedRangeStart = ref(null) // when in "load more" mode or single period
+    const loadedRangeEnd = ref(null)
+    const periodCache = ref(new Map()) // key: "startDate|endDate", value: transactions[]
+    const loadingMore = ref(false) // for "Load previous" button
     const accounts = ref([])
     const categories = ref([])
     const loading = ref(false)
@@ -494,6 +551,68 @@ export default defineComponent({
     const importing = ref(false)
     
     const filter = ref('')
+
+    // Period bounds: offset 0 = current, -1 = previous, 1 = next
+    const getPeriodBounds = (periodType, offset) => {
+      const today = new Date()
+      let start, end
+      if (periodType === 'weekly') {
+        const weekStart = new Date(today)
+        weekStart.setDate(today.getDate() - today.getDay())
+        weekStart.setDate(weekStart.getDate() + offset * 7)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 6)
+        start = weekStart
+        end = weekEnd
+      } else if (periodType === 'monthly') {
+        start = new Date(today.getFullYear(), today.getMonth() + offset, 1)
+        end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0)
+      } else if (periodType === 'yearly') {
+        start = new Date(today.getFullYear() + offset, 0, 1)
+        end = new Date(today.getFullYear() + offset, 11, 31)
+      } else {
+        return { startDate: null, endDate: null }
+      }
+      const startDate = start.toISOString().split('T')[0]
+      const endDate = end.toISOString().split('T')[0]
+      return { startDate, endDate }
+    }
+
+    const isCurrentPeriod = (periodType, offset) => {
+      return periodType !== 'all' && offset === 0
+    }
+
+    const getPeriodLabel = (periodType, offset) => {
+      if (periodType === 'all') return 'All time'
+      const { startDate, endDate } = getPeriodBounds(periodType, offset)
+      if (!startDate || !endDate) return ''
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      if (periodType === 'weekly') {
+        return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+      }
+      if (periodType === 'monthly') {
+        return start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      }
+      if (periodType === 'yearly') {
+        return start.getFullYear().toString()
+      }
+      return `${startDate} – ${endDate}`
+    }
+
+    const getEmptyMessage = (periodType) => {
+      if (periodType === 'weekly') return 'No transactions this week'
+      if (periodType === 'monthly') return 'No transactions this month'
+      if (periodType === 'yearly') return 'No transactions this year'
+      return 'No transactions'
+    }
+
+    const getLoadPreviousLabel = (periodType) => {
+      if (periodType === 'weekly') return 'Load previous week'
+      if (periodType === 'monthly') return 'Load previous month'
+      if (periodType === 'yearly') return 'Load previous year'
+      return 'Load previous period'
+    }
     
     const columns = [
       { 
@@ -905,10 +1024,65 @@ export default defineComponent({
       return new Date(dateString).toLocaleDateString()
     }
 
+    const cacheKey = (startDate, endDate) => `${startDate}|${endDate}`
+
+    const loadTransactionsForPeriod = async (offset, useCache = true) => {
+      const periodType = period.value
+      if (periodType === 'all') {
+        const list = await firebaseApi.getTransactions({ period: 'all' })
+        transactions.value = list
+        loadedRangeStart.value = null
+        loadedRangeEnd.value = null
+        periodCache.value.clear()
+        return
+      }
+      const { startDate, endDate } = getPeriodBounds(periodType, offset)
+      const key = cacheKey(startDate, endDate)
+      if (useCache && periodCache.value.has(key)) {
+        transactions.value = periodCache.value.get(key)
+        loadedRangeStart.value = startDate
+        loadedRangeEnd.value = endDate
+        return
+      }
+      const list = await firebaseApi.getTransactionsByDateRangeWithDetails(startDate, endDate)
+      periodCache.value.set(key, list)
+      transactions.value = list
+      loadedRangeStart.value = startDate
+      loadedRangeEnd.value = endDate
+    }
+
+    const preloadAdjacent = async () => {
+      const periodType = period.value
+      if (periodType === 'all') return
+      const offset = periodOffset.value
+      const prevBounds = getPeriodBounds(periodType, offset - 1)
+      const nextBounds = getPeriodBounds(periodType, offset + 1)
+      const toFetch = []
+      if (prevBounds.startDate && !periodCache.value.has(cacheKey(prevBounds.startDate, prevBounds.endDate))) {
+        toFetch.push(prevBounds)
+      }
+      if (nextBounds.startDate && !periodCache.value.has(cacheKey(nextBounds.startDate, nextBounds.endDate))) {
+        toFetch.push(nextBounds)
+      }
+      await Promise.all(
+        toFetch.map(async ({ startDate, endDate }) => {
+          const list = await firebaseApi.getTransactionsByDateRangeWithDetails(startDate, endDate)
+          periodCache.value.set(cacheKey(startDate, endDate), list)
+        })
+      )
+    }
+
     const loadTransactions = async () => {
       loading.value = true
       try {
-        transactions.value = await firebaseApi.getTransactions({ period: period.value })
+        if (period.value === 'all') {
+          periodOffset.value = 0
+          await loadTransactionsForPeriod(0, false)
+        } else {
+          periodOffset.value = 0
+          await loadTransactionsForPeriod(0, false)
+          preloadAdjacent()
+        }
       } catch (err) {
         $q.notify({
           type: 'negative',
@@ -916,6 +1090,92 @@ export default defineComponent({
         })
       } finally {
         loading.value = false
+      }
+    }
+
+    const goToPrevPeriod = async () => {
+      if (period.value === 'all') return
+      periodOffset.value -= 1
+      loading.value = true
+      try {
+        await loadTransactionsForPeriod(periodOffset.value, true)
+        preloadAdjacent()
+      } catch (err) {
+        periodOffset.value += 1
+        $q.notify({ type: 'negative', message: 'Failed to load transactions' })
+      } finally {
+        loading.value = false
+      }
+    }
+
+    const goToNextPeriod = async () => {
+      if (period.value === 'all' || isCurrentPeriod(period.value, periodOffset.value)) return
+      periodOffset.value += 1
+      loading.value = true
+      try {
+        await loadTransactionsForPeriod(periodOffset.value, true)
+        preloadAdjacent()
+      } catch (err) {
+        periodOffset.value -= 1
+        $q.notify({ type: 'negative', message: 'Failed to load transactions' })
+      } finally {
+        loading.value = false
+      }
+    }
+
+    const loadPreviousPeriod = async () => {
+      if (period.value === 'all') return
+      const periodType = period.value
+      const currentStart = loadedRangeStart.value
+      if (!currentStart) {
+        const b = getPeriodBounds(periodType, periodOffset.value)
+        if (b.startDate) {
+          const prev = getPeriodBounds(periodType, periodOffset.value - 1)
+          if (!prev.startDate) return
+          loadingMore.value = true
+          try {
+            const list = await firebaseApi.getTransactionsByDateRangeWithDetails(prev.startDate, prev.endDate)
+            const merged = [...list, ...transactions.value]
+            merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+            transactions.value = merged
+            loadedRangeStart.value = prev.startDate
+            loadedRangeEnd.value = loadedRangeEnd.value || getPeriodBounds(periodType, periodOffset.value).endDate
+            periodCache.value.set(cacheKey(prev.startDate, prev.endDate), list)
+          } finally {
+            loadingMore.value = false
+          }
+        }
+        return
+      }
+      const periodTypeForBounds = periodType
+      const start = new Date(currentStart)
+      let prevStart, prevEnd
+      if (periodTypeForBounds === 'weekly') {
+        prevEnd = new Date(start)
+        prevEnd.setDate(prevEnd.getDate() - 1)
+        prevStart = new Date(prevEnd)
+        prevStart.setDate(prevStart.getDate() - 6)
+      } else if (periodTypeForBounds === 'monthly') {
+        prevStart = new Date(start.getFullYear(), start.getMonth() - 1, 1)
+        prevEnd = new Date(start.getFullYear(), start.getMonth(), 0)
+      } else if (periodTypeForBounds === 'yearly') {
+        prevStart = new Date(start.getFullYear() - 1, 0, 1)
+        prevEnd = new Date(start.getFullYear() - 1, 11, 31)
+      } else {
+        return
+      }
+      const prevStartStr = prevStart.toISOString().split('T')[0]
+      const prevEndStr = prevEnd.toISOString().split('T')[0]
+      loadingMore.value = true
+      try {
+        const list = await firebaseApi.getTransactionsByDateRangeWithDetails(prevStartStr, prevEndStr)
+        const merged = [...list, ...transactions.value]
+        merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        transactions.value = merged
+        loadedRangeStart.value = prevStartStr
+        periodCache.value.set(cacheKey(prevStartStr, prevEndStr), list)
+      } finally {
+        loadingMore.value = false
       }
     }
 
@@ -998,6 +1258,7 @@ export default defineComponent({
         })
         
         cancelAdd()
+        periodCache.value.clear()
         
         console.log('🔵 [Transactions Page] Reloading transactions in 3 seconds to see if category was added...')
         setTimeout(async () => {
@@ -1137,6 +1398,7 @@ export default defineComponent({
         })
         
         cancelEdit()
+        periodCache.value.clear()
         await loadTransactions()
         await loadAccounts()
       } catch (err) {
@@ -1162,6 +1424,7 @@ export default defineComponent({
             type: 'positive',
             message: 'Transaction deleted'
           })
+          periodCache.value.clear()
           await loadTransactions()
           await loadAccounts()
         } catch (err) {
@@ -1415,7 +1678,10 @@ export default defineComponent({
               timeout: 5000
             })
             
-            // Reload data to show new accounts/categories
+            // Switch to "All" period so user sees imported transactions (default Monthly only shows current month)
+            period.value = 'all'
+            
+            // Reload data to show new accounts/categories and transactions
             await Promise.all([
               loadTransactions(),
               loadCategories(),
@@ -1435,6 +1701,10 @@ export default defineComponent({
 
     return {
       period,
+      periodOffset,
+      loadedRangeStart,
+      loadedRangeEnd,
+      loadingMore,
       transactions,
       accounts,
       categories,
@@ -1467,7 +1737,13 @@ export default defineComponent({
       cancelEdit,
       onUpdateTransaction,
       deleteTransaction,
-      
+      getPeriodLabel,
+      getEmptyMessage,
+      getLoadPreviousLabel,
+      isCurrentPeriod,
+      goToPrevPeriod,
+      goToNextPeriod,
+      loadPreviousPeriod,
       // Import
       fileInput,
       importing,

@@ -120,6 +120,7 @@ export default {
       let q = query(collection(db, 'transactions'), where('user_id', '==', userId))
 
       // Firestore date filtering - store dates as strings for easier querying
+      // 'all' = no date filter, show all transactions
       if (filters.period === 'weekly') {
         const today = new Date()
         const weekStart = new Date(today)
@@ -144,6 +145,7 @@ export default {
         const yearEndStr = yearEnd.toISOString().split('T')[0]
         q = query(q, where('date', '>=', yearStartStr), where('date', '<=', yearEndStr))
       }
+      // 'all' period: no date filter applied, fetch all user transactions
 
       if (filters.account_id) {
         q = query(q, where('account_id', '==', filters.account_id))
@@ -247,6 +249,72 @@ export default {
       return results
     } catch (error) {
       const errorMsg = handleFirestoreError(error, 'getTransactionsByDateRange')
+      throw new Error(`Failed to fetch transactions by date range: ${errorMsg}`)
+    }
+  },
+
+  async getTransactionsByDateRangeWithDetails(startDate, endDate, accountId = null) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      let q = query(
+        collection(db, 'transactions'),
+        where('user_id', '==', userId),
+        where('date', '>=', startDate),
+        where('date', '<=', endDate)
+      )
+
+      if (accountId) {
+        q = query(q, where('account_id', '==', accountId))
+      }
+
+      try {
+        q = query(q, orderBy('date', 'desc'))
+      } catch (e) {
+        // orderBy may fail if index missing; continue without it
+      }
+
+      const snapshot = await getDocs(q)
+      const transactions = []
+
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data()
+        let categoryName = null
+        let accountName = null
+
+        if (data.category_id) {
+          const categoryDoc = await getDoc(doc(db, 'categories', data.category_id))
+          if (categoryDoc.exists()) {
+            categoryName = categoryDoc.data().name
+          }
+        }
+
+        if (data.account_id) {
+          const accountDoc = await getDoc(doc(db, 'accounts', data.account_id))
+          if (accountDoc.exists()) {
+            accountName = accountDoc.data().name
+          }
+        }
+
+        transactions.push({
+          id: docSnap.id,
+          ...data,
+          date: toDateString(data.date),
+          category_name: categoryName,
+          account_name: accountName
+        })
+      }
+
+      transactions.sort((a, b) => {
+        const aDate = a.date || ''
+        const bDate = b.date || ''
+        return bDate.localeCompare(aDate)
+      })
+
+      return transactions
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getTransactionsByDateRangeWithDetails')
       throw new Error(`Failed to fetch transactions by date range: ${errorMsg}`)
     }
   },
@@ -431,6 +499,47 @@ export default {
       return { success: true }
     } catch (error) {
       throw new Error(`Failed to delete transaction: ${error.message}`)
+    }
+  },
+
+  // Admin: Delete all transactions for the current user
+  async deleteAllTransactions() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const transactions = await this.getAllTransactions()
+      if (transactions.length === 0) {
+        return { success: true, deletedCount: 0 }
+      }
+
+      // Revert account balance for each transaction (same as single delete)
+      for (const tx of transactions) {
+        if (tx.account_id) {
+          const amount = tx.type === 'income'
+            ? -parseFloat(tx.amount || 0)
+            : parseFloat(tx.amount || 0)
+          const reverseType = tx.type === 'income' ? 'expense' : 'income'
+          await this.updateAccountBalance(tx.account_id, Math.abs(amount), reverseType)
+        }
+      }
+
+      // Batch delete (Firestore limit 500 per batch)
+      const BATCH_SIZE = 500
+      let deletedCount = 0
+      for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db)
+        const chunk = transactions.slice(i, i + BATCH_SIZE)
+        chunk.forEach(tx => {
+          batch.delete(doc(db, 'transactions', tx.id))
+          deletedCount++
+        })
+        await batch.commit()
+      }
+
+      return { success: true, deletedCount }
+    } catch (error) {
+      throw new Error(`Failed to delete all transactions: ${error.message}`)
     }
   },
 

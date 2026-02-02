@@ -9,6 +9,24 @@
           </q-card-section>
 
           <q-card-section>
+            <!-- Delete All Transactions Section -->
+            <q-card flat bordered class="q-mb-md" style="border-left: 4px solid #b71c1c;">
+              <q-card-section>
+                <div class="text-h6 q-mb-sm">Delete All Transactions</div>
+                <div class="text-body2 text-grey-7 q-mb-md">
+                  Permanently delete every transaction for your account. Account balances will be reverted. This cannot be undone.
+                </div>
+                <q-btn
+                  color="negative"
+                  label="Delete All Transactions"
+                  icon="delete_forever"
+                  @click="confirmDeleteAllTransactions"
+                  :loading="deletingAll"
+                  :disable="deletingAll"
+                />
+              </q-card-section>
+            </q-card>
+
             <!-- Clear and Relearn Categories Section -->
             <q-card flat bordered class="q-mb-md" style="border-left: 4px solid #f44336;">
               <q-card-section>
@@ -135,6 +153,7 @@ export default {
     const loading = ref(false)
     const categorizing = ref(false)
     const clearingAndRelearning = ref(false)
+    const deletingAll = ref(false)
     const uncategorizedTransactions = ref([])
     const uncategorizedCount = ref(null)
     const results = ref([])
@@ -154,6 +173,56 @@ export default {
       { name: 'source', label: 'Source', field: 'source', align: 'left' },
       { name: 'status', label: 'Status', field: 'status', align: 'center' }
     ]
+
+    const confirmDeleteAllTransactions = async () => {
+      const confirmed = await $q.dialog({
+        title: 'Delete All Transactions?',
+        message: 'This will permanently delete every transaction for your account. Account balances will be reverted. This cannot be undone. Type DELETE to confirm.',
+        prompt: {
+          model: '',
+          type: 'text',
+          placeholder: 'Type DELETE'
+        },
+        cancel: true,
+        persistent: true,
+        ok: {
+          color: 'negative',
+          label: 'Delete All'
+        }
+      }).onOk((typed) => typed).onCancel(() => null)
+
+      if (confirmed !== 'DELETE') {
+        if (confirmed != null) {
+          $q.notify({ type: 'warning', message: 'You must type DELETE to confirm.', position: 'top' })
+        }
+        return
+      }
+
+      deletingAll.value = true
+      try {
+        const result = await firebaseApi.deleteAllTransactions()
+        $q.notify({
+          type: 'positive',
+          message: `Deleted ${result.deletedCount} transactions`,
+          position: 'top',
+          timeout: 5000
+        })
+        uncategorizedTransactions.value = []
+        uncategorizedCount.value = 0
+        results.value = []
+        await loadUncategorized()
+      } catch (error) {
+        console.error('Error deleting all transactions:', error)
+        $q.notify({
+          type: 'negative',
+          message: `Failed to delete transactions: ${error.message}`,
+          position: 'top',
+          timeout: 5000
+        })
+      } finally {
+        deletingAll.value = false
+      }
+    }
 
     const loadUncategorized = async () => {
       loading.value = true
@@ -640,6 +709,7 @@ export default {
       loading,
       categorizing,
       clearingAndRelearning,
+      deletingAll,
       uncategorizedTransactions,
       uncategorizedCount,
       results,
@@ -647,7 +717,8 @@ export default {
       resultColumns,
       loadUncategorized,
       categorizeBatch,
-      clearAndRelearnAll
+      clearAndRelearnAll,
+      confirmDeleteAllTransactions
     }
   }
 }
