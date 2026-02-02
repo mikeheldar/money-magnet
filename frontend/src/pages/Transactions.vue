@@ -10,7 +10,7 @@
               <template v-if="period !== 'all'">
                 <q-btn flat round dense icon="chevron_left" aria-label="Previous period" @click="goToPrevPeriod" />
                 <span class="text-body2 text-grey-8" style="min-width: 180px; text-align: center;">
-                  {{ getPeriodLabel(period, periodOffset) }}
+                  {{ periodHeaderLabel }}
                 </span>
                 <q-btn
                   flat
@@ -599,6 +599,22 @@ export default defineComponent({
       }
       return `${startDate} – ${endDate}`
     }
+
+    // Format loaded date range for header (single period or merged "Load previous" range)
+    const formatLoadedRange = (startDateStr, endDateStr) => {
+      if (!startDateStr || !endDateStr) return ''
+      const start = new Date(startDateStr)
+      const end = new Date(endDateStr)
+      return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    }
+
+    const periodHeaderLabel = computed(() => {
+      if (period.value === 'all') return 'All time'
+      if (loadedRangeStart.value && loadedRangeEnd.value) {
+        return formatLoadedRange(loadedRangeStart.value, loadedRangeEnd.value)
+      }
+      return getPeriodLabel(period.value, periodOffset.value)
+    })
 
     const getEmptyMessage = (periodType) => {
       if (periodType === 'weekly') return 'No transactions this week'
@@ -1738,6 +1754,7 @@ export default defineComponent({
       onUpdateTransaction,
       deleteTransaction,
       getPeriodLabel,
+      periodHeaderLabel,
       getEmptyMessage,
       getLoadPreviousLabel,
       isCurrentPeriod,

@@ -175,23 +175,25 @@ export default {
     ]
 
     const confirmDeleteAllTransactions = async () => {
-      const confirmed = await $q.dialog({
-        title: 'Delete All Transactions?',
-        message: 'This will permanently delete every transaction for your account. Account balances will be reverted. This cannot be undone. Type DELETE to confirm.',
-        prompt: {
-          model: '',
-          type: 'text',
-          placeholder: 'Type DELETE'
-        },
-        cancel: true,
-        persistent: true,
-        ok: {
-          color: 'negative',
-          label: 'Delete All'
-        }
-      }).onOk((typed) => typed).onCancel(() => null)
+      const confirmed = await new Promise((resolve) => {
+        $q.dialog({
+          title: 'Delete All Transactions?',
+          message: 'This will permanently delete every transaction for your account. Account balances will be reverted. This cannot be undone. Type DELETE to confirm.',
+          prompt: {
+            model: '',
+            type: 'text',
+            placeholder: 'Type DELETE'
+          },
+          cancel: true,
+          persistent: true,
+          ok: {
+            color: 'negative',
+            label: 'Delete All'
+          }
+        }).onOk((typed) => resolve(typed)).onCancel(() => resolve(null))
+      })
 
-      if (confirmed !== 'DELETE') {
+      if (confirmed == null || String(confirmed).trim().toUpperCase() !== 'DELETE') {
         if (confirmed != null) {
           $q.notify({ type: 'warning', message: 'You must type DELETE to confirm.', position: 'top' })
         }
