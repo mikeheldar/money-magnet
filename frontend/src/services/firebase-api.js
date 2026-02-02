@@ -517,20 +517,11 @@ export default {
         return { success: true, deletedCount: 0 }
       }
 
-      // Revert account balance for each transaction (same as single delete)
-      console.log('[deleteAllTransactions] Reverting account balances...')
-      for (const tx of transactions) {
-        if (tx.account_id) {
-          const amount = tx.type === 'income'
-            ? -parseFloat(tx.amount || 0)
-            : parseFloat(tx.amount || 0)
-          const reverseType = tx.type === 'income' ? 'expense' : 'income'
-          await this.updateAccountBalance(tx.account_id, Math.abs(amount), reverseType)
-        }
-      }
-      console.log('[deleteAllTransactions] Account balances reverted')
+      // Skip reverting account balances one-by-one (too slow for bulk delete)
+      // Instead, we'll reset all account balances to 0 after deleting transactions
+      console.log('[deleteAllTransactions] Skipping individual balance reverts (bulk delete optimization)')
 
-      // Batch delete (Firestore limit 500 per batch)
+      // Batch delete transactions (Firestore limit 500 per batch)
       const BATCH_SIZE = 500
       const numBatches = Math.ceil(transactions.length / BATCH_SIZE)
       let deletedCount = 0
@@ -546,8 +537,29 @@ export default {
         console.log('[deleteAllTransactions] Batch', batchNum, '/', numBatches, ':', chunk.length, 'deleted (total so far:', deletedCount, ')')
       }
 
-      console.log('[deleteAllTransactions] Done. Deleted', deletedCount, 'transactions')
-      return { success: true, deletedCount }
+      console.log('[deleteAllTransactions] All transactions deleted. Resetting account balances to 0...')
+
+      // Reset all account balances to 0 (much faster than reverting one-by-one)
+      const accounts = await this.getAccounts()
+      console.log('[deleteAllTransactions] Found', accounts.length, 'accounts to reset')
+      
+      const accountBatches = Math.ceil(accounts.length / BATCH_SIZE)
+      for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1
+        const batch = writeBatch(db)
+        const chunk = accounts.slice(i, i + BATCH_SIZE)
+        chunk.forEach(account => {
+          batch.update(doc(db, 'accounts', account.id), {
+            balance_current: 0,
+            updated_at: serverTimestamp()
+          })
+        })
+        await batch.commit()
+        console.log('[deleteAllTransactions] Account balance reset batch', batchNum, '/', accountBatches, ':', chunk.length, 'accounts')
+      }
+
+      console.log('[deleteAllTransactions] Done. Deleted', deletedCount, 'transactions and reset', accounts.length, 'account balances to 0')
+      return { success: true, deletedCount, accountsReset: accounts.length }
     } catch (error) {
       throw new Error(`Failed to delete all transactions: ${error.message}`)
     }

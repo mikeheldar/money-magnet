@@ -204,10 +204,10 @@ export default {
       console.log('[Admin] Delete all transactions: starting...')
       try {
         const result = await firebaseApi.deleteAllTransactions()
-        console.log('[Admin] Delete all transactions: completed. Deleted', result.deletedCount, 'transactions')
+        console.log('[Admin] Delete all transactions: completed. Deleted', result.deletedCount, 'transactions, reset', result.accountsReset, 'account balances')
         $q.notify({
           type: 'positive',
-          message: `Deleted ${result.deletedCount} transactions`,
+          message: `Deleted ${result.deletedCount} transactions and reset ${result.accountsReset} account balances to $0`,
           position: 'top',
           timeout: 5000
         })
