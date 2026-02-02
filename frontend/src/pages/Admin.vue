@@ -201,8 +201,10 @@ export default {
       }
 
       deletingAll.value = true
+      console.log('[Admin] Delete all transactions: starting...')
       try {
         const result = await firebaseApi.deleteAllTransactions()
+        console.log('[Admin] Delete all transactions: completed. Deleted', result.deletedCount, 'transactions')
         $q.notify({
           type: 'positive',
           message: `Deleted ${result.deletedCount} transactions`,
@@ -214,7 +216,7 @@ export default {
         results.value = []
         await loadUncategorized()
       } catch (error) {
-        console.error('Error deleting all transactions:', error)
+        console.error('[Admin] Delete all transactions failed:', error)
         $q.notify({
           type: 'negative',
           message: `Failed to delete transactions: ${error.message}`,

@@ -509,11 +509,16 @@ export default {
       if (!userId) throw new Error('Not authenticated')
 
       const transactions = await this.getAllTransactions()
+      const totalToDelete = transactions.length
+      console.log('[deleteAllTransactions] Fetched', totalToDelete, 'transactions to delete')
+
       if (transactions.length === 0) {
+        console.log('[deleteAllTransactions] No transactions to delete')
         return { success: true, deletedCount: 0 }
       }
 
       // Revert account balance for each transaction (same as single delete)
+      console.log('[deleteAllTransactions] Reverting account balances...')
       for (const tx of transactions) {
         if (tx.account_id) {
           const amount = tx.type === 'income'
@@ -523,11 +528,14 @@ export default {
           await this.updateAccountBalance(tx.account_id, Math.abs(amount), reverseType)
         }
       }
+      console.log('[deleteAllTransactions] Account balances reverted')
 
       // Batch delete (Firestore limit 500 per batch)
       const BATCH_SIZE = 500
+      const numBatches = Math.ceil(transactions.length / BATCH_SIZE)
       let deletedCount = 0
       for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1
         const batch = writeBatch(db)
         const chunk = transactions.slice(i, i + BATCH_SIZE)
         chunk.forEach(tx => {
@@ -535,8 +543,10 @@ export default {
           deletedCount++
         })
         await batch.commit()
+        console.log('[deleteAllTransactions] Batch', batchNum, '/', numBatches, ':', chunk.length, 'deleted (total so far:', deletedCount, ')')
       }
 
+      console.log('[deleteAllTransactions] Done. Deleted', deletedCount, 'transactions')
       return { success: true, deletedCount }
     } catch (error) {
       throw new Error(`Failed to delete all transactions: ${error.message}`)
