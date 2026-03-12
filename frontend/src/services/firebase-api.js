@@ -1163,6 +1163,135 @@ export default {
     }
   },
 
+  async getForecastSeries(options = {}) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { startDate, endDate, grain = 'weekly' } = options
+      const today = new Date()
+      const todayStr = today.toISOString().split('T')[0]
+
+      const accounts = await this.getAccounts()
+      const activeAccounts = accounts.filter(a => !a.is_closed)
+      const totalBalance = activeAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0)
+      const balanceByAccount = {}
+      activeAccounts.forEach(a => {
+        balanceByAccount[a.id] = a.balance_current || 0
+      })
+
+      const daysBack = 30
+      const start30 = new Date(today)
+      start30.setDate(start30.getDate() - daysBack)
+      const start30Str = start30.toISOString().split('T')[0]
+      const recentTxns = await this.getTransactionsByDateRange(start30Str, todayStr)
+
+      let totalNet = 0
+      const netByAccount = {}
+      recentTxns.forEach(t => {
+        const amt = parseFloat(t.amount) || 0
+        const delta = t.type === 'income' ? amt : -amt
+        totalNet += delta
+        const aid = t.account_id || '_none'
+        if (!netByAccount[aid]) netByAccount[aid] = 0
+        netByAccount[aid] += delta
+      })
+      const avgDailyNetTotal = totalNet / daysBack
+      const avgDailyNetByAccount = {}
+      Object.keys(netByAccount).forEach(aid => {
+        avgDailyNetByAccount[aid] = netByAccount[aid] / daysBack
+      })
+
+      function addDays(d, n) {
+        const out = new Date(d)
+        out.setDate(out.getDate() + n)
+        return out
+      }
+
+      function toStr(d) {
+        return d.toISOString().split('T')[0]
+      }
+
+      const buckets = []
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+
+      if (grain === 'daily') {
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
+        }
+      } else if (grain === 'weekly') {
+        const weekStart = new Date(start)
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+        for (let d = new Date(weekStart); d <= end; d.setDate(d.getDate() + 7)) {
+          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
+        }
+      } else {
+        let d = new Date(start.getFullYear(), start.getMonth(), 1)
+        while (d <= end) {
+          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) })
+          d.setMonth(d.getMonth() + 1)
+        }
+      }
+
+      let nowIndex = 0
+      for (let i = 0; i < buckets.length; i++) {
+        if (buckets[i].dateStr >= todayStr) {
+          nowIndex = i
+          break
+        }
+        nowIndex = i
+      }
+
+      const totalValues = []
+      const valuesByAccount = {}
+      activeAccounts.forEach(a => {
+        valuesByAccount[a.id] = []
+      })
+
+      buckets.forEach((b, i) => {
+        const bucketDate = b.date
+        const bucketStr = b.dateStr
+        const daysToToday = Math.round((today - bucketDate) / 864e5)
+
+        let totalAtBucket
+        if (daysToToday > 0) {
+          totalAtBucket = totalBalance - avgDailyNetTotal * daysToToday
+        } else {
+          totalAtBucket = totalBalance + avgDailyNetTotal * Math.abs(daysToToday)
+        }
+        totalValues.push(Math.round(totalAtBucket * 100) / 100)
+
+        activeAccounts.forEach(acc => {
+          const bal = balanceByAccount[acc.id]
+          const dailyNet = avgDailyNetByAccount[acc.id] ?? 0
+          let atBucket
+          if (daysToToday > 0) {
+            atBucket = bal - dailyNet * daysToToday
+          } else {
+            atBucket = bal + dailyNet * Math.abs(daysToToday)
+          }
+          valuesByAccount[acc.id].push(Math.round(atBucket * 100) / 100)
+        })
+      })
+
+      const series = activeAccounts.map(a => ({
+        accountId: a.id,
+        accountName: a.name,
+        values: valuesByAccount[a.id] || []
+      }))
+
+      return {
+        labels: buckets.map(b => b.label),
+        nowIndex,
+        series,
+        totalValues
+      }
+    } catch (error) {
+      throw new Error(`Failed to get forecast series: ${error.message}`)
+    }
+  },
+
   // Budgets
   async getBudgets() {
     try {
