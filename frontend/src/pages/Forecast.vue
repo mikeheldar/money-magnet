@@ -44,6 +44,24 @@
               />
             </div>
 
+            <div v-if="forecastData && forecastData.series.length" class="q-mb-md">
+              <div class="text-subtitle2 q-mb-sm">Accounts to show</div>
+              <div class="row q-col-gutter-sm">
+                <q-checkbox
+                  v-for="s in forecastData.series"
+                  :key="s.accountId"
+                  v-model="selectedAccountIds"
+                  :val="s.accountId"
+                  :label="s.accountName"
+                  color="primary"
+                  dense
+                  @update:model-value="renderChart"
+                />
+              </div>
+              <q-btn flat dense size="sm" label="Select all" class="q-mt-xs" @click="selectAllAccounts" />
+              <q-btn flat dense size="sm" label="Clear all" class="q-mt-xs q-ml-xs" @click="clearAllAccounts" />
+            </div>
+
             <div v-if="loading" class="row justify-center q-pa-lg">
               <q-spinner-dots color="primary" size="40px" />
             </div>
@@ -119,6 +137,7 @@ export default defineComponent({
     const forecastData = ref(null)
     const summaryCards = ref(null)
     const forecastChart = ref(null)
+    const selectedAccountIds = ref([])
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -154,6 +173,9 @@ export default defineComponent({
         const { startDate, endDate, grain } = getDateRange()
         const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain })
         forecastData.value = data
+        if (data.series && data.series.length && selectedAccountIds.value.length === 0) {
+          selectedAccountIds.value = data.series.map(s => s.accountId)
+        }
 
         const accounts = await firebaseApi.getAccounts()
         const active = accounts.filter(a => !a.is_closed)
@@ -194,12 +216,21 @@ export default defineComponent({
       }
 
       const { labels, nowIndex, series, totalValues } = forecastData.value
+      const selected = selectedAccountIds.value
+      const hasSelection = selected.length > 0
+      const filteredSeries = hasSelection
+        ? series.filter(s => selected.includes(s.accountId))
+        : []
+
       const datasets = []
 
-      if (totalValues && totalValues.length) {
+      if (hasSelection && filteredSeries.length > 0 && filteredSeries[0].values.length) {
+        const totalSelected = filteredSeries[0].values.map((_, i) =>
+          filteredSeries.reduce((sum, s) => sum + (s.values[i] || 0), 0)
+        )
         datasets.push({
-          label: 'Total',
-          data: totalValues,
+          label: 'Total (selected)',
+          data: totalSelected,
           borderColor: '#3BA99F',
           backgroundColor: 'rgba(59, 169, 159, 0.1)',
           fill: true,
@@ -208,7 +239,7 @@ export default defineComponent({
         })
       }
 
-      series.forEach((s, i) => {
+      filteredSeries.forEach((s, i) => {
         datasets.push({
           label: s.accountName,
           data: s.values,
@@ -295,9 +326,25 @@ export default defineComponent({
       loadForecastSeries()
     })
 
+    const selectAllAccounts = () => {
+      if (forecastData.value && forecastData.value.series) {
+        selectedAccountIds.value = forecastData.value.series.map(s => s.accountId)
+        renderChart()
+      }
+    }
+
+    const clearAllAccounts = () => {
+      selectedAccountIds.value = []
+      renderChart()
+    }
+
     watch(rangePreset, () => {
       if (forecastData.value) loadForecastSeries()
     })
+
+    watch(selectedAccountIds, () => {
+      if (forecastData.value && chartInstance) renderChart()
+    }, { deep: true })
 
     return {
       rangePreset,
@@ -306,8 +353,12 @@ export default defineComponent({
       forecastData,
       summaryCards,
       forecastChart,
+      selectedAccountIds,
       formatCurrency,
-      loadForecastSeries
+      loadForecastSeries,
+      selectAllAccounts,
+      clearAllAccounts,
+      renderChart
     }
   }
 })
