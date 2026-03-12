@@ -10,6 +10,7 @@ const routes = [
       { path: 'account-types', component: () => import('pages/AccountTypes.vue') },
       { path: 'budget', component: () => import('pages/Budget.vue') },
       { path: 'recurring', component: () => import('pages/Recurring.vue') },
+      { path: 'goals', component: () => import('pages/Goals.vue') },
       { path: 'budget-categories', component: () => import('pages/BudgetCategories.vue') },
       { path: 'seed-data', component: () => import('pages/SeedData.vue') },
       { path: 'trading/insights', component: () => import('pages/trading/Insights.vue') },

@@ -147,6 +147,21 @@
           </q-item-section>
         </q-item>
 
+        <q-item
+          clickable
+          v-ripple
+          to="/goals"
+        >
+          <q-item-section avatar>
+            <q-icon name="emoji_events" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>Goals</q-item-label>
+            <q-item-label caption>Vision board & money goals</q-item-label>
+          </q-item-section>
+        </q-item>
+
         </q-expansion-item>
 
         <q-separator spaced />

@@ -1281,6 +1281,100 @@ export default {
     }
   },
 
+  // Goals (vision board)
+  async getGoals() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const q = query(
+        collection(db, 'goals'),
+        where('user_id', '==', userId)
+      )
+      const snapshot = await getDocs(q)
+      const goals = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+      goals.sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1
+        if (!a.pinned && b.pinned) return 1
+        const aOrder = a.sort_order ?? 0
+        const bOrder = b.sort_order ?? 0
+        if (aOrder !== bOrder) return aOrder - bOrder
+        const aTime = a.created_at?.toMillis?.() ?? a.created_at?.seconds ?? 0
+        const bTime = b.created_at?.toMillis?.() ?? b.created_at?.seconds ?? 0
+        return bTime - aTime
+      })
+      return goals
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getGoals')
+      throw new Error(`Failed to fetch goals: ${errorMsg}`)
+    }
+  },
+
+  async createGoal(goal) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const goalData = {
+        ...goal,
+        user_id: userId,
+        pinned: goal.pinned ?? false,
+        links: goal.links ?? [],
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      }
+      const docRef = await addDoc(collection(db, 'goals'), goalData)
+      return { id: docRef.id, ...goalData }
+    } catch (error) {
+      throw new Error(`Failed to create goal: ${error.message}`)
+    }
+  },
+
+  async updateGoal(id, goal) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const goalRef = doc(db, 'goals', id)
+      const goalDoc = await getDoc(goalRef)
+      if (!goalDoc.exists()) throw new Error('Goal not found')
+      if (goalDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      const updates = {
+        title: goal.title,
+        description: goal.description ?? null,
+        links: goal.links ?? [],
+        target_date: goal.target_date ?? null,
+        target_start_date: goal.target_start_date ?? null,
+        target_end_date: goal.target_end_date ?? null,
+        pinned: goal.pinned ?? false,
+        sort_order: goal.sort_order ?? null,
+        updated_at: serverTimestamp()
+      }
+      await updateDoc(goalRef, updates)
+      return { id, ...goal }
+    } catch (error) {
+      throw new Error(`Failed to update goal: ${error.message}`)
+    }
+  },
+
+  async deleteGoal(id) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const goalRef = doc(db, 'goals', id)
+      const goalDoc = await getDoc(goalRef)
+      if (!goalDoc.exists()) throw new Error('Goal not found')
+      if (goalDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await deleteDoc(goalRef)
+      return { success: true }
+    } catch (error) {
+      throw new Error(`Failed to delete goal: ${error.message}`)
+    }
+  },
+
   // Plaid Integration
   async createPlaidLinkToken() {
     try {
