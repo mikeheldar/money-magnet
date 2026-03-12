@@ -2,6 +2,12 @@
   <q-page padding>
     <div class="row q-col-gutter-md">
       <div class="col-12">
+        <q-card flat bordered class="q-mb-md" style="border-radius: 12px; border-left: 4px solid #3BA99F;">
+          <q-card-section class="q-py-sm">
+            <div class="text-h6" style="color: #3BA99F; font-weight: 600;">Where intention meets numbers—manifest your financial future.</div>
+            <div class="text-body2 text-grey-7 q-mt-xs">Set your money intentions, track where you are, and see where you're going.</div>
+          </q-card-section>
+        </q-card>
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Financial Dashboard</div>

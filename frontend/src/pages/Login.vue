@@ -3,7 +3,7 @@
     <q-card class="q-pa-md" style="min-width: 350px; box-shadow: 0 8px 24px rgba(78, 205, 196, 0.2);">
       <q-card-section>
                 <div class="text-h4 text-center q-mb-md" style="color: #4ECDC4; font-weight: 600;">Money Magnet</div>
-        <div class="text-subtitle2 text-center q-mb-lg" style="color: #6B7280;">Finance Management</div>
+        <div class="text-subtitle2 text-center q-mb-lg" style="color: #6B7280;">Where intention meets numbers—manifest your financial future.</div>
       </q-card-section>
 
       <q-card-section>

@@ -291,6 +291,21 @@
         <q-item
           clickable
           v-ripple
+          to="/about"
+        >
+          <q-item-section avatar>
+            <q-icon name="info" />
+          </q-item-section>
+
+          <q-item-section>
+            <q-item-label>About</q-item-label>
+            <q-item-label caption>What Money Magnet is about</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
           to="/account-types"
         >
           <q-item-section avatar>
