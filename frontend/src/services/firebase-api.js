@@ -98,6 +98,33 @@ export default {
     }
   },
 
+  async register(email, password) {
+    try {
+      if (!auth) {
+        throw new Error('Firebase Auth is not initialized. Please enable Authentication in Firebase Console.')
+      }
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+      return {
+        success: true,
+        token: await userCredential.user.getIdToken(),
+        user: {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email
+        }
+      }
+    } catch (error) {
+      let errorMessage = error.message
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'An account already exists with this email address.'
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.'
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password should be at least 6 characters.'
+      }
+      throw new Error(errorMessage)
+    }
+  },
+
   async logout() {
     try {
       await signOut(auth)

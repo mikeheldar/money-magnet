@@ -2,8 +2,8 @@
   <div class="flex flex-center q-page--login" style="min-height: 100vh; width: 100%;">
     <q-card class="q-pa-md" style="min-width: 350px; box-shadow: 0 8px 24px rgba(78, 205, 196, 0.2);">
       <q-card-section>
-                <div class="text-h4 text-center q-mb-md" style="color: #4ECDC4; font-weight: 600;">Money Magnet</div>
-        <div class="text-subtitle2 text-center q-mb-lg" style="color: #6B7280;">Where intention meets numbers—manifest your financial future.</div>
+        <div class="text-h4 text-center q-mb-md" style="color: #4ECDC4; font-weight: 600;">Money Magnet</div>
+        <div class="text-subtitle2 text-center q-mb-lg" style="color: #6B7280;">Create your account</div>
       </q-card-section>
 
       <q-card-section>
@@ -21,7 +21,15 @@
             label="Password"
             type="password"
             outlined
-            :rules="[val => !!val || 'Password is required']"
+            :rules="[val => !!val || 'Password is required', val => val.length >= 6 || 'At least 6 characters']"
+          />
+
+          <q-input
+            v-model="confirmPassword"
+            label="Confirm password"
+            type="password"
+            outlined
+            :rules="[val => !!val || 'Confirm your password', val => val === password || 'Passwords do not match']"
           />
 
           <div v-if="error" class="text-negative q-mt-sm">
@@ -34,15 +42,14 @@
               color="primary"
               size="lg"
               class="full-width"
-              label="Login"
+              label="Sign up"
               type="submit"
               :loading="loading"
             />
           </div>
 
-          <div class="row q-gutter-sm q-mt-md">
-            <q-btn flat color="primary" label="Sign up" to="/signup" class="full-width" />
-            <q-btn flat color="grey-7" label="About" to="/about" class="full-width" />
+          <div class="text-center">
+            <router-link to="/login" class="text-primary" style="text-decoration: none;">Already have an account? Log in</router-link>
           </div>
         </q-form>
       </q-card-section>
@@ -57,38 +64,31 @@ import firebaseApi from '../services/firebase-api'
 import { auth } from '../config/firebase'
 
 export default defineComponent({
-  name: 'LoginPage',
+  name: 'SignUpPage',
   setup() {
     const router = useRouter()
-    const email = ref('mike@example.com') // Default for testing
-    const password = ref('password')
+    const email = ref('')
+    const password = ref('')
+    const confirmPassword = ref('')
     const loading = ref(false)
     const error = ref('')
 
     onMounted(() => {
-      // Check if user is already logged in
       auth.onAuthStateChanged((user) => {
-        if (user) {
-          router.push('/')
-        }
+        if (user) router.push('/')
       })
     })
 
     const onSubmit = async () => {
       loading.value = true
       error.value = ''
-
       try {
-        const response = await firebaseApi.login(email.value, password.value)
-        
-        if (response.success) {
-          localStorage.setItem('authToken', response.token)
-          router.push('/')
-        } else {
-          error.value = 'Invalid credentials'
-        }
+        await firebaseApi.register(email.value, password.value)
+        const token = await auth.currentUser.getIdToken()
+        localStorage.setItem('authToken', token)
+        router.push('/')
       } catch (err) {
-        error.value = err.message || 'Login failed. Please try again.'
+        error.value = err.message || 'Sign up failed. Please try again.'
       } finally {
         loading.value = false
       }
@@ -97,6 +97,7 @@ export default defineComponent({
     return {
       email,
       password,
+      confirmPassword,
       loading,
       error,
       onSubmit
@@ -104,4 +105,3 @@ export default defineComponent({
   }
 })
 </script>
-

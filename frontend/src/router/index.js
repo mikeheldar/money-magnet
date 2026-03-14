@@ -9,11 +9,12 @@ export default function (/* { store, ssrContext } */) {
     history: createWebHashHistory()
   })
 
-  // Auth guard with Firebase
+  // Auth guard with Firebase (allow login, signup, and about without auth)
+  const publicPaths = ['/login', '/signup', '/about']
   router.beforeEach((to, from, next) => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (to.path === '/login') {
-        if (user) {
+      if (publicPaths.includes(to.path)) {
+        if (user && (to.path === '/login' || to.path === '/signup')) {
           next('/')
         } else {
           next()
