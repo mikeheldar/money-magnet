@@ -1640,6 +1640,23 @@ export default {
     }
   },
 
+  async syncPlaidTransactions(accessToken = null) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { httpsCallable } = await import('firebase/functions')
+      const { functions } = await import('../config/firebase')
+      const syncTransactions = httpsCallable(functions, 'syncPlaidTransactions', { timeout: 120000 })
+
+      const result = await syncTransactions(accessToken ? { accessToken } : {})
+      return result.data
+    } catch (error) {
+      console.error('Plaid sync transactions error:', error)
+      throw new Error(`Failed to sync transactions: ${error.message || error.code || 'Unknown error'}`)
+    }
+  },
+
   // Trading & AI Features
   async getAutomationSettings() {
     try {

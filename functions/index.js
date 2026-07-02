@@ -551,6 +551,216 @@ exports.syncPlaidAccounts = onCall(async (request) => {
 });
 
 // ============================================================================
+// Sync Plaid Transactions (cursor-based incremental, separate from account sync)
+// ============================================================================
+
+exports.syncPlaidTransactions = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { accessToken } = request.data || {};
+  const userId = request.auth.uid;
+  const client = getPlaidClient();
+
+  // Helper: batch write in groups of 499 (Firestore batch limit is 500)
+  const batchWrite = async (ops) => {
+    for (let i = 0; i < ops.length; i += 499) {
+      const batch = admin.firestore().batch();
+      ops.slice(i, i + 499).forEach(({ ref, data, op }) => {
+        if (op === 'set') batch.set(ref, data);
+        else if (op === 'update') batch.update(ref, data);
+        else if (op === 'delete') batch.delete(ref);
+      });
+      await batch.commit();
+    }
+  };
+
+  // Resolve access tokens — either the one provided or all stored for the user
+  let tokensToSync = [];
+  if (accessToken) {
+    // Find the plaid_items doc that has this access_token
+    const itemQuery = await admin.firestore()
+      .collection('plaid_items')
+      .where('user_id', '==', userId)
+      .where('access_token', '==', accessToken)
+      .limit(1)
+      .get();
+    if (!itemQuery.empty) {
+      tokensToSync.push({ itemId: itemQuery.docs[0].id, token: accessToken, doc: itemQuery.docs[0] });
+    } else {
+      // Token not in plaid_items yet — sync it and we'll store the cursor after
+      tokensToSync.push({ itemId: null, token: accessToken, doc: null });
+    }
+  } else {
+    // Sync all plaid_items for the user
+    const itemsSnapshot = await admin.firestore()
+      .collection('plaid_items')
+      .where('user_id', '==', userId)
+      .get();
+    tokensToSync = itemsSnapshot.docs.map(d => ({
+      itemId: d.id,
+      token: d.data().access_token,
+      doc: d,
+    }));
+  }
+
+  if (tokensToSync.length === 0) {
+    return { added: 0, modified: 0, removed: 0, message: 'No Plaid items linked for this user' };
+  }
+
+  // Load user's categories once for mapping
+  const categoriesSnapshot = await admin.firestore()
+    .collection('categories')
+    .where('user_id', '==', userId)
+    .get();
+  const categories = categoriesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const mapPlaidCategory = (plaidCategory) => {
+    if (!plaidCategory || !plaidCategory.length) return null;
+    const categoryMap = {
+      'food and drink': 'Groceries',
+      'shops': 'Shopping',
+      'travel': 'Travel',
+      'gas stations': 'Transport',
+      'general merchandise': 'Shopping',
+      'entertainment': 'Entertainment',
+      'recreation': 'Entertainment',
+    };
+    const primaryCategory = plaidCategory[0];
+    const mappedName = categoryMap[primaryCategory.toLowerCase()] || primaryCategory;
+    return categories.find(c => c.name.toLowerCase() === mappedName.toLowerCase())?.id || null;
+  };
+
+  let totalAdded = 0, totalModified = 0, totalRemoved = 0;
+
+  for (const { itemId, token, doc } of tokensToSync) {
+    const storedCursor = doc?.data()?.transactions_cursor || null;
+
+    // Build Plaid account_id → Firestore account doc_id map for this item
+    const accountsQuery = await admin.firestore()
+      .collection('accounts')
+      .where('user_id', '==', userId)
+      .get();
+    const accountIdMap = {};
+    accountsQuery.docs.forEach(d => {
+      const plaidId = d.data().plaid_account_id;
+      if (plaidId) accountIdMap[plaidId] = d.id;
+    });
+
+    // Paginate transactionsSync until has_more = false
+    let cursor = storedCursor;
+    let hasMore = true;
+    const addedOps = [], modifiedOps = [], removedOps = [];
+
+    while (hasMore) {
+      const syncParams = { access_token: token, count: 100 };
+      if (cursor) syncParams.cursor = cursor;
+
+      const syncResponse = await client.transactionsSync(syncParams);
+      const data = syncResponse.data;
+
+      for (const t of (data.added || [])) {
+        const firestoreAccountId = accountIdMap[t.account_id];
+        if (!firestoreAccountId) continue;
+        const amount = Math.abs(t.amount);
+        const type = t.amount > 0 ? 'expense' : 'income';
+        addedOps.push({
+          ref: admin.firestore().collection('transactions').doc(),
+          op: 'set',
+          data: {
+            user_id: userId,
+            account_id: firestoreAccountId,
+            category_id: mapPlaidCategory(t.category),
+            type,
+            amount,
+            description: t.name || t.merchant_name || 'Transaction',
+            merchant: t.merchant_name || null,
+            date: t.date,
+            posted_at: t.authorized_date
+              ? admin.firestore.Timestamp.fromDate(new Date(t.authorized_date))
+              : null,
+            external_id: t.transaction_id,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        });
+      }
+
+      for (const t of (data.modified || [])) {
+        const existingQuery = await admin.firestore()
+          .collection('transactions')
+          .where('user_id', '==', userId)
+          .where('external_id', '==', t.transaction_id)
+          .limit(1)
+          .get();
+        if (existingQuery.empty) continue;
+        modifiedOps.push({
+          ref: existingQuery.docs[0].ref,
+          op: 'update',
+          data: {
+            amount: Math.abs(t.amount),
+            type: t.amount > 0 ? 'expense' : 'income',
+            description: t.name || t.merchant_name || 'Transaction',
+            merchant: t.merchant_name || null,
+            date: t.date,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        });
+      }
+
+      for (const t of (data.removed || [])) {
+        const existingQuery = await admin.firestore()
+          .collection('transactions')
+          .where('user_id', '==', userId)
+          .where('external_id', '==', t.transaction_id)
+          .limit(1)
+          .get();
+        if (!existingQuery.empty) {
+          removedOps.push({ ref: existingQuery.docs[0].ref, op: 'delete' });
+        }
+      }
+
+      cursor = data.next_cursor;
+      hasMore = data.has_more || false;
+    }
+
+    // Write to Firestore
+    if (addedOps.length > 0) await batchWrite(addedOps);
+    if (modifiedOps.length > 0) await batchWrite(modifiedOps);
+    if (removedOps.length > 0) await batchWrite(removedOps);
+
+    // Persist the cursor for next incremental sync
+    const cursorUpdate = {
+      transactions_cursor: cursor,
+      transactions_last_synced: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (itemId) {
+      await admin.firestore().collection('plaid_items').doc(itemId).update(cursorUpdate);
+    } else {
+      // Item doc didn't exist yet — store it now
+      const newItemQuery = await admin.firestore()
+        .collection('plaid_items')
+        .where('user_id', '==', userId)
+        .where('access_token', '==', token)
+        .limit(1)
+        .get();
+      if (!newItemQuery.empty) {
+        await newItemQuery.docs[0].ref.update(cursorUpdate);
+      }
+    }
+
+    totalAdded += addedOps.length;
+    totalModified += modifiedOps.length;
+    totalRemoved += removedOps.length;
+
+    console.log(`✅ [syncPlaidTransactions] item synced: +${addedOps.length} ~${modifiedOps.length} -${removedOps.length}`);
+  }
+
+  return { added: totalAdded, modified: totalModified, removed: totalRemoved };
+});
+
+// ============================================================================
 // N8N Integration: Smart Transaction Categorization
 // ============================================================================
 

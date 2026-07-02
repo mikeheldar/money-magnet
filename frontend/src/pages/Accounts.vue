@@ -32,6 +32,14 @@
                   :loading="plaidLoading"
                 />
                 <q-btn
+                  color="secondary"
+                  icon="sync"
+                  label="Sync Transactions"
+                  outline
+                  @click="syncAllTransactions"
+                  :loading="syncingTransactions"
+                />
+                <q-btn
                   color="accent"
                   icon="camera_alt"
                   label="Add Balance Snapshot"
@@ -444,6 +452,7 @@ export default defineComponent({
     const showAddRow = ref(false)
     const editingId = ref(null)
     const plaidLoading = ref(false)
+    const syncingTransactions = ref(false)
     const creatingSnapshot = ref(false)
     const comparingSnapshot = ref(false)
     const snapshots = ref([])
@@ -1017,6 +1026,25 @@ export default defineComponent({
       }
     }
 
+    const syncAllTransactions = async () => {
+      syncingTransactions.value = true
+      try {
+        const result = await firebaseApi.syncPlaidTransactions()
+        const { added = 0, modified = 0, removed = 0 } = result
+        const parts = []
+        if (added > 0) parts.push(`${added} added`)
+        if (modified > 0) parts.push(`${modified} updated`)
+        if (removed > 0) parts.push(`${removed} removed`)
+        const summary = parts.length > 0 ? parts.join(', ') : 'already up to date'
+        $q.notify({ type: 'positive', message: `Transactions synced — ${summary}`, timeout: 4000 })
+        if (added > 0 || removed > 0) await loadAccounts()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to sync transactions' })
+      } finally {
+        syncingTransactions.value = false
+      }
+    }
+
     const openMappingDialog = (account) => {
       selectedUnmappedAccount.value = account
       selectedTargetAccountId.value = null
@@ -1124,6 +1152,8 @@ export default defineComponent({
       deleteAccount,
       connectWithPlaid,
       plaidLoading,
+      syncAllTransactions,
+      syncingTransactions,
       createSnapshot,
       creatingSnapshot,
       comparingSnapshot,
