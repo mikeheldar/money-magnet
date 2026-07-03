@@ -64,6 +64,25 @@
                         <div v-if="goal.target_date || (goal.target_start_date && goal.target_end_date)" class="text-caption text-grey-7 q-mb-sm">
                           {{ formatTimePeriod(goal) }}
                         </div>
+                        <div v-if="goal.target_amount > 0" class="q-mb-sm">
+                          <div class="row items-center justify-between q-mb-xs">
+                            <span class="text-caption text-grey-8">
+                              ${{ formatCurrency(goalCurrentAmount(goal)) }} of ${{ formatCurrency(goal.target_amount) }}
+                            </span>
+                            <span class="text-caption text-weight-bold" :class="goalProgress(goal) >= 1 ? 'text-positive' : 'text-grey-7'">
+                              {{ Math.round(goalProgress(goal) * 100) }}%
+                            </span>
+                          </div>
+                          <q-linear-progress
+                            :value="goalProgress(goal)"
+                            :color="goalProgress(goal) >= 1 ? 'positive' : 'primary'"
+                            size="8px"
+                            rounded
+                          />
+                          <div v-if="goal.linked_account_id" class="text-caption text-grey-6 q-mt-xs">
+                            <q-icon name="account_balance" size="12px" class="q-mr-xs" />{{ linkedAccountName(goal) }}
+                          </div>
+                        </div>
                         <div v-if="goal.links && goal.links.length" class="q-gutter-xs">
                           <q-chip
                             v-for="(link, idx) in goal.links"
@@ -118,6 +137,45 @@
             type="textarea"
             rows="3"
             class="q-mb-md"
+          />
+          <div class="row q-col-gutter-sm q-mb-md">
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model.number="form.target_amount"
+                label="Target amount (optional)"
+                type="number"
+                prefix="$"
+                outlined
+                dense
+                clearable
+                min="0"
+              />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-select
+                v-model="form.linked_account_id"
+                :options="accountOptions"
+                label="Track with account (optional)"
+                outlined
+                dense
+                clearable
+                emit-value
+                map-options
+              />
+            </div>
+          </div>
+          <q-input
+            v-if="form.target_amount && !form.linked_account_id"
+            v-model.number="form.current_amount"
+            label="Saved so far"
+            type="number"
+            prefix="$"
+            outlined
+            dense
+            clearable
+            min="0"
+            class="q-mb-md"
+            hint="Update this manually, or link an account above to track automatically"
           />
           <div class="q-mb-md">
             <div class="text-caption text-grey-7 q-mb-sm">Links</div>
@@ -186,6 +244,7 @@ export default defineComponent({
     const saving = ref(false)
     const deleting = ref(false)
     const goals = ref([])
+    const accounts = ref([])
     const dialogOpen = ref(false)
     const deleteDialogOpen = ref(false)
     const editingGoal = ref(null)
@@ -200,6 +259,9 @@ export default defineComponent({
       target_date: null,
       target_start_date: null,
       target_end_date: null,
+      target_amount: null,
+      current_amount: null,
+      linked_account_id: null,
       pinned: false
     })
 
@@ -211,6 +273,9 @@ export default defineComponent({
         target_date: null,
         target_start_date: null,
         target_end_date: null,
+        target_amount: null,
+        current_amount: null,
+        linked_account_id: null,
         pinned: false
       }
       editingGoal.value = null
@@ -225,6 +290,45 @@ export default defineComponent({
       } finally {
         loading.value = false
       }
+    }
+
+    const loadAccounts = async () => {
+      try {
+        accounts.value = await firebaseApi.getAccounts()
+      } catch (err) {
+        // Progress bars fall back to manual amounts; goals still work without accounts
+        console.warn('Failed to load accounts for goal progress:', err.message)
+      }
+    }
+
+    const accountOptions = computed(() =>
+      accounts.value.map(a => ({
+        label: `${a.name} ($${formatCurrency(a.balance_current || 0)})`,
+        value: a.id
+      }))
+    )
+
+    const formatCurrency = (val) => {
+      const num = Number(val) || 0
+      return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    }
+
+    const goalCurrentAmount = (goal) => {
+      if (goal.linked_account_id) {
+        const account = accounts.value.find(a => a.id === goal.linked_account_id)
+        if (account) return Math.max(0, account.balance_current || 0)
+      }
+      return Math.max(0, goal.current_amount || 0)
+    }
+
+    const goalProgress = (goal) => {
+      if (!goal.target_amount || goal.target_amount <= 0) return 0
+      return Math.min(1, goalCurrentAmount(goal) / goal.target_amount)
+    }
+
+    const linkedAccountName = (goal) => {
+      const account = accounts.value.find(a => a.id === goal.linked_account_id)
+      return account ? account.name : 'Linked account'
     }
 
     const truncate = (str, len) => {
@@ -270,6 +374,9 @@ export default defineComponent({
         target_date: goal.target_date || null,
         target_start_date: goal.target_start_date || null,
         target_end_date: goal.target_end_date || null,
+        target_amount: goal.target_amount ?? null,
+        current_amount: goal.current_amount ?? null,
+        linked_account_id: goal.linked_account_id || null,
         pinned: !!goal.pinned
       }
       dialogOpen.value = true
@@ -290,6 +397,9 @@ export default defineComponent({
         target_date: form.value.target_date || null,
         target_start_date: form.value.target_start_date || null,
         target_end_date: form.value.target_end_date || null,
+        target_amount: form.value.target_amount > 0 ? Number(form.value.target_amount) : null,
+        current_amount: form.value.current_amount > 0 ? Number(form.value.current_amount) : null,
+        linked_account_id: form.value.linked_account_id || null,
         pinned: !!form.value.pinned
       }
       saving.value = true
@@ -343,11 +453,18 @@ export default defineComponent({
 
     onMounted(() => {
       loadGoals()
+      loadAccounts()
     })
 
     return {
       quoteOfTheDay,
       goals,
+      accounts,
+      accountOptions,
+      formatCurrency,
+      goalCurrentAmount,
+      goalProgress,
+      linkedAccountName,
       loading,
       saving,
       deleting,

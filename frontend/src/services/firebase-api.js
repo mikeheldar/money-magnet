@@ -1503,6 +1503,9 @@ export default {
         target_date: goal.target_date ?? null,
         target_start_date: goal.target_start_date ?? null,
         target_end_date: goal.target_end_date ?? null,
+        target_amount: goal.target_amount ?? null,
+        current_amount: goal.current_amount ?? null,
+        linked_account_id: goal.linked_account_id ?? null,
         pinned: goal.pinned ?? false,
         sort_order: goal.sort_order ?? null,
         updated_at: serverTimestamp()
