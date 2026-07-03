@@ -554,13 +554,10 @@ exports.syncPlaidAccounts = onCall(async (request) => {
 // Sync Plaid Transactions (cursor-based incremental, separate from account sync)
 // ============================================================================
 
-exports.syncPlaidTransactions = onCall(async (request) => {
-  if (!request.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
-  }
-
-  const { accessToken } = request.data || {};
-  const userId = request.auth.uid;
+// Shared per-user transaction sync used by both the callable function and the
+// daily scheduled sync. items: [{ itemId, token, doc }] where doc is the
+// plaid_items snapshot (null when the token isn't stored yet).
+const syncTransactionsForUser = async (userId, items) => {
   const client = getPlaidClient();
 
   // Helper: batch write in groups of 499 (Firestore batch limit is 500)
@@ -575,39 +572,6 @@ exports.syncPlaidTransactions = onCall(async (request) => {
       await batch.commit();
     }
   };
-
-  // Resolve access tokens — either the one provided or all stored for the user
-  let tokensToSync = [];
-  if (accessToken) {
-    // Find the plaid_items doc that has this access_token
-    const itemQuery = await admin.firestore()
-      .collection('plaid_items')
-      .where('user_id', '==', userId)
-      .where('access_token', '==', accessToken)
-      .limit(1)
-      .get();
-    if (!itemQuery.empty) {
-      tokensToSync.push({ itemId: itemQuery.docs[0].id, token: accessToken, doc: itemQuery.docs[0] });
-    } else {
-      // Token not in plaid_items yet — sync it and we'll store the cursor after
-      tokensToSync.push({ itemId: null, token: accessToken, doc: null });
-    }
-  } else {
-    // Sync all plaid_items for the user
-    const itemsSnapshot = await admin.firestore()
-      .collection('plaid_items')
-      .where('user_id', '==', userId)
-      .get();
-    tokensToSync = itemsSnapshot.docs.map(d => ({
-      itemId: d.id,
-      token: d.data().access_token,
-      doc: d,
-    }));
-  }
-
-  if (tokensToSync.length === 0) {
-    return { added: 0, modified: 0, removed: 0, message: 'No Plaid items linked for this user' };
-  }
 
   // Load user's categories once for mapping
   const categoriesSnapshot = await admin.firestore()
@@ -634,7 +598,7 @@ exports.syncPlaidTransactions = onCall(async (request) => {
 
   let totalAdded = 0, totalModified = 0, totalRemoved = 0;
 
-  for (const { itemId, token, doc } of tokensToSync) {
+  for (const { itemId, token, doc } of items) {
     const storedCursor = doc?.data()?.transactions_cursor || null;
 
     // Build Plaid account_id → Firestore account doc_id map for this item
@@ -758,6 +722,97 @@ exports.syncPlaidTransactions = onCall(async (request) => {
   }
 
   return { added: totalAdded, modified: totalModified, removed: totalRemoved };
+};
+
+exports.syncPlaidTransactions = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { accessToken } = request.data || {};
+  const userId = request.auth.uid;
+
+  // Resolve access tokens — either the one provided or all stored for the user
+  let tokensToSync = [];
+  if (accessToken) {
+    // Find the plaid_items doc that has this access_token
+    const itemQuery = await admin.firestore()
+      .collection('plaid_items')
+      .where('user_id', '==', userId)
+      .where('access_token', '==', accessToken)
+      .limit(1)
+      .get();
+    if (!itemQuery.empty) {
+      tokensToSync.push({ itemId: itemQuery.docs[0].id, token: accessToken, doc: itemQuery.docs[0] });
+    } else {
+      // Token not in plaid_items yet — sync it and we'll store the cursor after
+      tokensToSync.push({ itemId: null, token: accessToken, doc: null });
+    }
+  } else {
+    // Sync all plaid_items for the user
+    const itemsSnapshot = await admin.firestore()
+      .collection('plaid_items')
+      .where('user_id', '==', userId)
+      .get();
+    tokensToSync = itemsSnapshot.docs.map(d => ({
+      itemId: d.id,
+      token: d.data().access_token,
+      doc: d,
+    }));
+  }
+
+  if (tokensToSync.length === 0) {
+    return { added: 0, modified: 0, removed: 0, message: 'No Plaid items linked for this user' };
+  }
+
+  return await syncTransactionsForUser(userId, tokensToSync);
+});
+
+// Scheduled daily sync: keeps transactions fresh for every linked Plaid item
+// without users needing to press "Sync Transactions". Incremental via the
+// stored transactions_cursor, so each run only pulls what changed.
+exports.syncAllPlaidTransactionsScheduled = onSchedule({
+  schedule: '0 6 * * *', // Daily at 6:00 AM
+  timeZone: 'America/New_York',
+  retryConfig: {
+    retryCount: 2,
+    maxRetryDuration: '60s'
+  }
+}, async (event) => {
+  console.log('🔄 [Scheduled] Syncing Plaid transactions for all linked items...');
+
+  const itemsSnapshot = await admin.firestore().collection('plaid_items').get();
+  if (itemsSnapshot.empty) {
+    console.log('ℹ️ [Scheduled] No Plaid items linked. Nothing to sync.');
+    return { message: 'No Plaid items linked', added: 0, modified: 0, removed: 0 };
+  }
+
+  // Group items by user so categories/accounts are loaded once per user
+  const itemsByUser = {};
+  itemsSnapshot.docs.forEach(d => {
+    const { user_id: uid, access_token: token } = d.data();
+    if (!uid || !token) return;
+    (itemsByUser[uid] = itemsByUser[uid] || []).push({ itemId: d.id, token, doc: d });
+  });
+
+  let totalAdded = 0, totalModified = 0, totalRemoved = 0, failedUsers = 0;
+
+  for (const [uid, items] of Object.entries(itemsByUser)) {
+    try {
+      const result = await syncTransactionsForUser(uid, items);
+      totalAdded += result.added;
+      totalModified += result.modified;
+      totalRemoved += result.removed;
+      console.log(`✅ [Scheduled] user ${uid}: +${result.added} ~${result.modified} -${result.removed}`);
+    } catch (userError) {
+      failedUsers++;
+      console.error(`❌ [Scheduled] Sync failed for user ${uid}:`, userError);
+      // Continue with other users even if one fails
+    }
+  }
+
+  console.log(`✅ [Scheduled] Plaid transaction sync complete: +${totalAdded} ~${totalModified} -${totalRemoved}, ${failedUsers} user(s) failed`);
+  return { added: totalAdded, modified: totalModified, removed: totalRemoved, failedUsers };
 });
 
 // ============================================================================
