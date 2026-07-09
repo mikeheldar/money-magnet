@@ -13,7 +13,7 @@ admin.initializeApp();
 setGlobalOptions({
   region: 'us-central1',
   maxInstances: 10,
-  secrets: ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'N8N_WEBHOOK_URL'], // Declare secrets for v2 functions
+  secrets: ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'N8N_WEBHOOK_URL', 'PLAID_ENV'], // v2 secrets → process.env (PLAID_ENV selects sandbox/production)
 });
 
 // Get Plaid credentials from environment variables (v2 functions use env vars, not config)
