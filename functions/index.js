@@ -81,7 +81,7 @@ const getPlaidClient = () => {
       
       plaidClient = new PlaidApi(
         new Configuration({
-          basePath: PlaidEnvironments.sandbox, // Use sandbox for development
+          basePath: PlaidEnvironments[(process.env.PLAID_ENV || 'sandbox').trim()] || PlaidEnvironments.sandbox, // env-driven: set PLAID_ENV=production for live accounts
           baseOptions: {
             headers: {
               'PLAID-CLIENT-ID': cleanClientId,
