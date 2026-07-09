@@ -64,7 +64,7 @@
                         <div v-if="goal.target_date || (goal.target_start_date && goal.target_end_date)" class="text-caption text-grey-7 q-mb-sm">
                           {{ formatTimePeriod(goal) }}
                         </div>
-                        <div v-if="goal.target_amount > 0" class="q-mb-sm">
+                        <div v-if="goal.target_amount > 0 && !isSpendLimit(goal)" class="q-mb-sm">
                           <div class="row items-center justify-between q-mb-xs">
                             <span class="text-caption text-grey-8">
                               ${{ formatCurrency(goalCurrentAmount(goal)) }} of ${{ formatCurrency(goal.target_amount) }}
@@ -81,6 +81,25 @@
                           />
                           <div v-if="goal.linked_account_id" class="text-caption text-grey-6 q-mt-xs">
                             <q-icon name="account_balance" size="12px" class="q-mr-xs" />{{ linkedAccountName(goal) }}
+                          </div>
+                        </div>
+                        <div v-if="goal.target_amount > 0 && isSpendLimit(goal)" class="q-mb-sm">
+                          <div class="row items-center justify-between q-mb-xs">
+                            <span class="text-caption text-grey-8">
+                              ${{ formatCurrency(spentForGoal(goal)) }} of ${{ formatCurrency(goal.target_amount) }} limit
+                            </span>
+                            <span class="text-caption text-weight-bold" :class="spendStatusClass(goal)">
+                              {{ spendRemainingLabel(goal) }}
+                            </span>
+                          </div>
+                          <q-linear-progress
+                            :value="Math.min(1, spendProgress(goal))"
+                            :color="spendBarColor(goal)"
+                            size="8px"
+                            rounded
+                          />
+                          <div class="text-caption text-grey-6 q-mt-xs">
+                            <q-icon name="category" size="12px" class="q-mr-xs" />{{ goalCategoryName(goal) }} · {{ spendPeriodLabel(goal) }}
                           </div>
                         </div>
                         <div v-if="goal.links && goal.links.length" class="q-gutter-xs">
@@ -138,7 +157,21 @@
             rows="3"
             class="q-mb-md"
           />
-          <div class="row q-col-gutter-sm q-mb-md">
+          <q-btn-toggle
+            v-model="form.goal_type"
+            spread
+            no-caps
+            unelevated
+            toggle-color="primary"
+            color="grey-2"
+            text-color="grey-8"
+            class="q-mb-md"
+            :options="[
+              { label: 'Save up', value: 'save' },
+              { label: 'Spending limit', value: 'spend_limit' }
+            ]"
+          />
+          <div v-if="form.goal_type !== 'spend_limit'" class="row q-col-gutter-sm q-mb-md">
             <div class="col-12 col-md-6">
               <q-input
                 v-model.number="form.target_amount"
@@ -164,8 +197,35 @@
               />
             </div>
           </div>
+          <div v-if="form.goal_type === 'spend_limit'" class="row q-col-gutter-sm q-mb-md">
+            <div class="col-12 col-md-6">
+              <q-select
+                v-model="form.category_id"
+                :options="expenseCategoryOptions"
+                label="Category *"
+                outlined
+                dense
+                clearable
+                emit-value
+                map-options
+              />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model.number="form.target_amount"
+                label="Spending limit *"
+                type="number"
+                prefix="$"
+                outlined
+                dense
+                clearable
+                min="0"
+                hint="Per month, or over the date range below"
+              />
+            </div>
+          </div>
           <q-input
-            v-if="form.target_amount && !form.linked_account_id"
+            v-if="form.goal_type !== 'spend_limit' && form.target_amount && !form.linked_account_id"
             v-model.number="form.current_amount"
             label="Saved so far"
             type="number"
@@ -245,6 +305,8 @@ export default defineComponent({
     const deleting = ref(false)
     const goals = ref([])
     const accounts = ref([])
+    const categories = ref([])
+    const spendTransactions = ref([])
     const dialogOpen = ref(false)
     const deleteDialogOpen = ref(false)
     const editingGoal = ref(null)
@@ -262,6 +324,8 @@ export default defineComponent({
       target_amount: null,
       current_amount: null,
       linked_account_id: null,
+      goal_type: 'save',
+      category_id: null,
       pinned: false
     })
 
@@ -276,6 +340,8 @@ export default defineComponent({
         target_amount: null,
         current_amount: null,
         linked_account_id: null,
+        goal_type: 'save',
+        category_id: null,
         pinned: false
       }
       editingGoal.value = null
@@ -300,6 +366,97 @@ export default defineComponent({
         console.warn('Failed to load accounts for goal progress:', err.message)
       }
     }
+
+    const loadCategories = async () => {
+      try {
+        categories.value = await firebaseApi.getCategories()
+      } catch (err) {
+        console.warn('Failed to load categories for goals:', err.message)
+      }
+    }
+
+    const isSpendLimit = (goal) => goal.goal_type === 'spend_limit'
+
+    const spendPeriodRange = (goal) => {
+      if (goal.target_start_date && goal.target_end_date) {
+        return { start: goal.target_start_date, end: goal.target_end_date }
+      }
+      const today = new Date()
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+      return {
+        start: monthStart.toISOString().split('T')[0],
+        end: monthEnd.toISOString().split('T')[0]
+      }
+    }
+
+    const loadSpending = async () => {
+      const limitGoals = goals.value.filter(isSpendLimit)
+      if (!limitGoals.length) {
+        spendTransactions.value = []
+        return
+      }
+      const ranges = limitGoals.map(spendPeriodRange)
+      const start = ranges.map(r => r.start).sort()[0]
+      const end = ranges.map(r => r.end).sort().slice(-1)[0]
+      try {
+        spendTransactions.value = await firebaseApi.getTransactionsByDateRange(start, end)
+      } catch (err) {
+        console.warn('Failed to load spending for goals:', err.message)
+      }
+    }
+
+    const spentForGoal = (goal) => {
+      if (!goal.category_id) return 0
+      const ids = new Set([goal.category_id])
+      categories.value.forEach(c => { if (c.parent_id === goal.category_id) ids.add(c.id) })
+      const { start, end } = spendPeriodRange(goal)
+      return spendTransactions.value.reduce((sum, t) => {
+        if (t.type !== 'expense' || !ids.has(t.category_id)) return sum
+        if (!t.date || t.date < start || t.date > end) return sum
+        return sum + Math.abs(parseFloat(t.amount) || 0)
+      }, 0)
+    }
+
+    const spendProgress = (goal) => {
+      if (!goal.target_amount || goal.target_amount <= 0) return 0
+      return spentForGoal(goal) / goal.target_amount
+    }
+
+    const spendBarColor = (goal) => {
+      const p = spendProgress(goal)
+      if (p > 1) return 'negative'
+      if (p >= 0.8) return 'warning'
+      return 'primary'
+    }
+
+    const spendStatusClass = (goal) => spendProgress(goal) > 1 ? 'text-negative' : 'text-grey-7'
+
+    const spendRemainingLabel = (goal) => {
+      const remaining = (goal.target_amount || 0) - spentForGoal(goal)
+      return remaining >= 0
+        ? `$${formatCurrency(remaining)} left`
+        : `over by $${formatCurrency(-remaining)}`
+    }
+
+    const goalCategoryName = (goal) => {
+      const cat = categories.value.find(c => c.id === goal.category_id)
+      return cat ? cat.name : 'Category'
+    }
+
+    const spendPeriodLabel = (goal) =>
+      goal.target_start_date && goal.target_end_date ? formatTimePeriod(goal) : 'this month'
+
+    const expenseCategoryOptions = computed(() => {
+      const expense = categories.value.filter(c => c.type === 'expense')
+      const byId = Object.fromEntries(expense.map(c => [c.id, c]))
+      return expense
+        .map(c => ({
+          label: c.parent_id && byId[c.parent_id] ? `${byId[c.parent_id].name} › ${c.name}` : c.name,
+          value: c.id
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+    })
 
     const accountOptions = computed(() =>
       accounts.value.map(a => ({
@@ -377,6 +534,8 @@ export default defineComponent({
         target_amount: goal.target_amount ?? null,
         current_amount: goal.current_amount ?? null,
         linked_account_id: goal.linked_account_id || null,
+        goal_type: goal.goal_type === 'spend_limit' ? 'spend_limit' : 'save',
+        category_id: goal.category_id || null,
         pinned: !!goal.pinned
       }
       dialogOpen.value = true
@@ -385,6 +544,11 @@ export default defineComponent({
     const saveGoal = async () => {
       if (!form.value.title?.trim()) {
         $q.notify({ type: 'warning', message: 'Title is required' })
+        return
+      }
+      const isLimit = form.value.goal_type === 'spend_limit'
+      if (isLimit && (!form.value.category_id || !(form.value.target_amount > 0))) {
+        $q.notify({ type: 'warning', message: 'Spending limits need a category and a limit amount' })
         return
       }
       const links = (form.value.links || [])
@@ -398,8 +562,10 @@ export default defineComponent({
         target_start_date: form.value.target_start_date || null,
         target_end_date: form.value.target_end_date || null,
         target_amount: form.value.target_amount > 0 ? Number(form.value.target_amount) : null,
-        current_amount: form.value.current_amount > 0 ? Number(form.value.current_amount) : null,
-        linked_account_id: form.value.linked_account_id || null,
+        current_amount: !isLimit && form.value.current_amount > 0 ? Number(form.value.current_amount) : null,
+        linked_account_id: isLimit ? null : (form.value.linked_account_id || null),
+        goal_type: isLimit ? 'spend_limit' : 'save',
+        category_id: isLimit ? form.value.category_id : null,
         pinned: !!form.value.pinned
       }
       saving.value = true
@@ -414,6 +580,7 @@ export default defineComponent({
         dialogOpen.value = false
         resetForm()
         await loadGoals()
+        await loadSpending()
       } catch (err) {
         $q.notify({ type: 'negative', message: err.message || 'Failed to save goal' })
       } finally {
@@ -451,9 +618,9 @@ export default defineComponent({
       }
     }
 
-    onMounted(() => {
-      loadGoals()
-      loadAccounts()
+    onMounted(async () => {
+      await Promise.all([loadGoals(), loadCategories(), loadAccounts()])
+      loadSpending()
     })
 
     return {
@@ -465,6 +632,15 @@ export default defineComponent({
       goalCurrentAmount,
       goalProgress,
       linkedAccountName,
+      isSpendLimit,
+      spentForGoal,
+      spendProgress,
+      spendBarColor,
+      spendStatusClass,
+      spendRemainingLabel,
+      goalCategoryName,
+      spendPeriodLabel,
+      expenseCategoryOptions,
       loading,
       saving,
       deleting,

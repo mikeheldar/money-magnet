@@ -1506,6 +1506,8 @@ export default {
         target_amount: goal.target_amount ?? null,
         current_amount: goal.current_amount ?? null,
         linked_account_id: goal.linked_account_id ?? null,
+        goal_type: goal.goal_type ?? null,
+        category_id: goal.category_id ?? null,
         pinned: goal.pinned ?? false,
         sort_order: goal.sort_order ?? null,
         updated_at: serverTimestamp()
