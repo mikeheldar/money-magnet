@@ -1201,64 +1201,152 @@ export default {
 
       const accounts = await this.getAccounts()
       const activeAccounts = accounts.filter(a => !a.is_closed)
-      const totalBalance = activeAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0)
-      const balanceByAccount = {}
-      activeAccounts.forEach(a => {
-        balanceByAccount[a.id] = a.balance_current || 0
-      })
+      const activeIds = new Set(activeAccounts.map(a => a.id))
 
-      const daysBack = 30
-      const start30 = new Date(today)
-      start30.setDate(start30.getDate() - daysBack)
-      const start30Str = start30.toISOString().split('T')[0]
-      const recentTxns = await this.getTransactionsByDateRange(start30Str, todayStr)
-
-      let totalNet = 0
-      const netByAccount = {}
-      recentTxns.forEach(t => {
-        const amt = parseFloat(t.amount) || 0
-        const delta = t.type === 'income' ? amt : -amt
-        totalNet += delta
-        const aid = t.account_id || '_none'
-        if (!netByAccount[aid]) netByAccount[aid] = 0
-        netByAccount[aid] += delta
-      })
-      const avgDailyNetTotal = totalNet / daysBack
-      const avgDailyNetByAccount = {}
-      Object.keys(netByAccount).forEach(aid => {
-        avgDailyNetByAccount[aid] = netByAccount[aid] / daysBack
-      })
-
+      function toStr(d) {
+        return d.toISOString().split('T')[0]
+      }
       function addDays(d, n) {
         const out = new Date(d)
         out.setDate(out.getDate() + n)
         return out
       }
-
-      function toStr(d) {
-        return d.toISOString().split('T')[0]
+      function addMonthsClamped(d, n) {
+        const day = d.getDate()
+        const out = new Date(d)
+        out.setDate(1)
+        out.setMonth(out.getMonth() + n)
+        const lastDay = new Date(out.getFullYear(), out.getMonth() + 1, 0).getDate()
+        out.setDate(Math.min(day, lastDay))
+        return out
       }
 
-      const buckets = []
-      const start = new Date(startDate)
-      const end = new Date(endDate)
+      // Deterministic engine: real balances in the past (reconstructed from actual
+      // transactions), and for the future each recurring bill/income lands on its own
+      // scheduled date while everything non-recurring flows at a rolling baseline rate.
+      const BASELINE_DAYS = 90
+      const CROSSING_HORIZON_DAYS = 1825 // goal crossings are searched up to 5 years out
 
+      const windowStart = new Date(startDate)
+      const windowEnd = new Date(endDate)
+      const horizonCandidate = addDays(today, CROSSING_HORIZON_DAYS)
+      const horizonEnd = horizonCandidate > windowEnd ? horizonCandidate : windowEnd
+      const baselineStart = addDays(today, -BASELINE_DAYS)
+      const historyStart = baselineStart < windowStart ? baselineStart : windowStart
+
+      const history = (await this.getTransactionsByDateRange(toStr(historyStart), todayStr))
+        .filter(t => t.account_id && activeIds.has(t.account_id))
+
+      const txnDelta = (t) => {
+        const amt = Math.abs(parseFloat(t.amount) || 0)
+        return t.type === 'income' ? amt : -amt
+      }
+
+      // Baseline: average daily net of NON-recurring flow only — recurring items are
+      // modeled explicitly on their own dates below, so they must not also inflate the rate
+      const baselineStartStr = toStr(baselineStart)
+      let earliestStr = todayStr
+      const baselineNetByAccount = {}
+      history.forEach(t => {
+        if (t.date < earliestStr) earliestStr = t.date
+        if (t.recurring || t.date < baselineStartStr) return
+        baselineNetByAccount[t.account_id] = (baselineNetByAccount[t.account_id] || 0) + txnDelta(t)
+      })
+      const observedDays = Math.min(
+        BASELINE_DAYS,
+        Math.max(7, Math.round((today - new Date(earliestStr)) / 864e5) + 1)
+      )
+      Object.keys(baselineNetByAccount).forEach(aid => {
+        baselineNetByAccount[aid] /= observedDays
+      })
+      const baselineDailyNet = Object.values(baselineNetByAccount).reduce((s, v) => s + v, 0)
+
+      // Recurring schedule: the latest occurrence of each recurring item (per account +
+      // merchant + frequency) anchors its projected future dates and amount
+      const recurringAnchors = {}
+      history.forEach(t => {
+        if (!t.recurring || !t.recurring_frequency) return
+        const key = `${t.account_id}|${(t.merchant || t.description || '').toLowerCase()}|${t.recurring_frequency}`
+        if (!recurringAnchors[key] || t.date > recurringAnchors[key].date) recurringAnchors[key] = t
+      })
+
+      const dayStrs = []
+      for (let d = new Date(windowStart); d <= horizonEnd; d = addDays(d, 1)) dayStrs.push(toStr(d))
+      const dayIndex = {}
+      dayStrs.forEach((s, i) => { dayIndex[s] = i })
+      let todayIdx = dayIndex[todayStr]
+      if (todayIdx === undefined) todayIdx = todayStr < dayStrs[0] ? 0 : dayStrs.length - 1
+
+      const deltasByAccount = {}
+      activeAccounts.forEach(a => { deltasByAccount[a.id] = new Array(dayStrs.length).fill(0) })
+
+      history.forEach(t => {
+        const i = dayIndex[t.date]
+        if (i !== undefined && i <= todayIdx) deltasByAccount[t.account_id][i] += txnDelta(t)
+      })
+
+      for (let i = todayIdx + 1; i < dayStrs.length; i++) {
+        activeAccounts.forEach(a => {
+          deltasByAccount[a.id][i] += baselineNetByAccount[a.id] || 0
+        })
+      }
+
+      Object.values(recurringAnchors).forEach(t => {
+        const arr = deltasByAccount[t.account_id]
+        if (!arr) return
+        const step = t.recurring_frequency === 'weekly'
+          ? d => addDays(d, 7)
+          : t.recurring_frequency === 'yearly'
+            ? d => addMonthsClamped(d, 12)
+            : d => addMonthsClamped(d, 1)
+        let d = new Date(t.date)
+        for (let guard = 0; guard < 800 && d <= horizonEnd; guard++) {
+          const i = dayIndex[toStr(d)]
+          if (i !== undefined && i > todayIdx) arr[i] += txnDelta(t)
+          d = step(d)
+        }
+      })
+
+      // Balance walk anchored at today's real balance: walking backward strips out the
+      // actual deltas, walking forward adds the projected ones
+      const dailyByAccount = {}
+      activeAccounts.forEach(a => {
+        const arr = new Array(dayStrs.length).fill(0)
+        const deltas = deltasByAccount[a.id]
+        arr[todayIdx] = a.balance_current || 0
+        for (let i = todayIdx - 1; i >= 0; i--) arr[i] = arr[i + 1] - deltas[i + 1]
+        for (let i = todayIdx + 1; i < arr.length; i++) arr[i] = arr[i - 1] + deltas[i]
+        dailyByAccount[a.id] = arr
+      })
+      const dailyTotals = new Array(dayStrs.length).fill(0)
+      activeAccounts.forEach(a => {
+        const arr = dailyByAccount[a.id]
+        for (let i = 0; i < dayStrs.length; i++) dailyTotals[i] += arr[i]
+      })
+
+      const buckets = []
       if (grain === 'daily') {
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
+        for (let d = new Date(windowStart); d <= windowEnd; d = addDays(d, 1)) {
+          buckets.push({ dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
         }
       } else if (grain === 'weekly') {
-        const weekStart = new Date(start)
+        const weekStart = new Date(windowStart)
         weekStart.setDate(weekStart.getDate() - weekStart.getDay())
-        for (let d = new Date(weekStart); d <= end; d.setDate(d.getDate() + 7)) {
-          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
+        for (let d = new Date(weekStart); d <= windowEnd; d = addDays(d, 7)) {
+          buckets.push({ dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) })
         }
       } else {
-        let d = new Date(start.getFullYear(), start.getMonth(), 1)
-        while (d <= end) {
-          buckets.push({ date: new Date(d), dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) })
-          d.setMonth(d.getMonth() + 1)
+        let d = new Date(windowStart.getFullYear(), windowStart.getMonth(), 1)
+        while (d <= windowEnd) {
+          buckets.push({ dateStr: toStr(d), label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) })
+          d = addMonthsClamped(d, 1)
         }
+      }
+
+      const sampleAt = (arr, dateStr) => {
+        let i = dayIndex[dateStr]
+        if (i === undefined) i = dateStr < dayStrs[0] ? 0 : dayStrs.length - 1
+        return Math.round(arr[i] * 100) / 100
       }
 
       let nowIndex = 0
@@ -1270,49 +1358,58 @@ export default {
         nowIndex = i
       }
 
-      const totalValues = []
-      const valuesByAccount = {}
-      activeAccounts.forEach(a => {
-        valuesByAccount[a.id] = []
-      })
-
-      buckets.forEach((b, i) => {
-        const bucketDate = b.date
-        const bucketStr = b.dateStr
-        const daysToToday = Math.round((today - bucketDate) / 864e5)
-
-        let totalAtBucket
-        if (daysToToday > 0) {
-          totalAtBucket = totalBalance - avgDailyNetTotal * daysToToday
-        } else {
-          totalAtBucket = totalBalance + avgDailyNetTotal * Math.abs(daysToToday)
-        }
-        totalValues.push(Math.round(totalAtBucket * 100) / 100)
-
-        activeAccounts.forEach(acc => {
-          const bal = balanceByAccount[acc.id]
-          const dailyNet = avgDailyNetByAccount[acc.id] ?? 0
-          let atBucket
-          if (daysToToday > 0) {
-            atBucket = bal - dailyNet * daysToToday
-          } else {
-            atBucket = bal + dailyNet * Math.abs(daysToToday)
-          }
-          valuesByAccount[acc.id].push(Math.round(atBucket * 100) / 100)
-        })
-      })
-
+      const totalValues = buckets.map(b => sampleAt(dailyTotals, b.dateStr))
       const series = activeAccounts.map(a => ({
         accountId: a.id,
         accountName: a.name,
-        values: valuesByAccount[a.id] || []
+        values: buckets.map(b => sampleAt(dailyByAccount[a.id], b.dateStr))
       }))
+
+      // Goal crossings: the first projected day each save-up goal's tracked balance
+      // (linked account if set, otherwise the total) reaches its target amount
+      const allGoals = await this.getGoals()
+      const goals = allGoals
+        .filter(g => (g.goal_type || 'save_up') !== 'spend_limit' && Number(g.target_amount) > 0)
+        .map(g => {
+          const tracked = g.linked_account_id && dailyByAccount[g.linked_account_id]
+            ? dailyByAccount[g.linked_account_id]
+            : dailyTotals
+          const target = Number(g.target_amount)
+          const alreadyMet = tracked[todayIdx] >= target
+          let crossDate = null
+          if (!alreadyMet) {
+            for (let i = todayIdx + 1; i < dayStrs.length; i++) {
+              if (tracked[i] >= target) {
+                crossDate = dayStrs[i]
+                break
+              }
+            }
+          }
+          return {
+            id: g.id,
+            title: g.title,
+            target_amount: target,
+            target_date: g.target_date || null,
+            linked_account_id: g.linked_account_id || null,
+            alreadyMet,
+            crossDate,
+            onTrack: g.target_date ? (alreadyMet || (crossDate !== null && crossDate <= g.target_date)) : null
+          }
+        })
 
       return {
         labels: buckets.map(b => b.label),
         nowIndex,
         series,
-        totalValues
+        totalValues,
+        bucketDates: buckets.map(b => b.dateStr),
+        goals,
+        meta: {
+          baselineDailyNet: Math.round(baselineDailyNet * 100) / 100,
+          observedDays,
+          recurringCount: Object.keys(recurringAnchors).length,
+          horizonDays: CROSSING_HORIZON_DAYS
+        }
       }
     } catch (error) {
       throw new Error(`Failed to get forecast series: ${error.message}`)

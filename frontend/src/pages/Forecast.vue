@@ -5,7 +5,7 @@
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Balance Forecast</div>
-            <p class="text-body2 text-grey-7 q-mb-md">Projected balance over time based on recent spend trends. "Now" is at the center; time runs left (past) to right (future).</p>
+            <p class="text-body2 text-grey-7 q-mb-md">Your money's road: real balances in the past, and ahead each recurring bill and paycheck lands on its scheduled date while day-to-day spend flows at your recent baseline. "Now" is at the center.</p>
 
             <div v-if="summaryCards" class="row q-col-gutter-md q-mb-md">
               <div class="col-12 col-md-4">
@@ -19,13 +19,74 @@
               <div class="col-12 col-md-4">
                 <q-card flat bordered class="bg-grey-1">
                   <q-card-section class="q-py-sm">
-                    <div class="text-caption text-grey-7">Avg daily net (last 30 days)</div>
-                    <div class="text-h6" :class="summaryCards.avgDailyNet >= 0 ? 'text-positive' : 'text-negative'">
-                      ${{ formatCurrency(summaryCards.avgDailyNet) }}
+                    <div class="text-caption text-grey-7">Baseline daily net (last {{ summaryCards.observedDays }}d, excl. recurring)</div>
+                    <div class="text-h6" :class="summaryCards.baselineDailyNet >= 0 ? 'text-positive' : 'text-negative'">
+                      ${{ formatCurrency(summaryCards.baselineDailyNet) }}
                     </div>
                   </q-card-section>
                 </q-card>
               </div>
+              <div class="col-12 col-md-4">
+                <q-card flat bordered class="bg-grey-1">
+                  <q-card-section class="q-py-sm">
+                    <div class="text-caption text-grey-7">Recurring bills/income modeled</div>
+                    <div class="text-h6">{{ summaryCards.recurringCount }}</div>
+                  </q-card-section>
+                </q-card>
+              </div>
+            </div>
+
+            <div v-if="goalOptions.length" class="q-mb-md">
+              <q-card flat bordered :class="goalCardClass">
+                <q-card-section class="q-py-sm">
+                  <div class="row items-center q-col-gutter-md">
+                    <div class="col-12 col-md-4">
+                      <q-select
+                        v-model="selectedGoalId"
+                        :options="goalOptions"
+                        emit-value
+                        map-options
+                        dense
+                        outlined
+                        label="Goal to track"
+                        bg-color="white"
+                      />
+                    </div>
+                    <div v-if="selectedGoal" class="col-12 col-md-8">
+                      <template v-if="selectedGoal.alreadyMet">
+                        <span class="text-subtitle1 text-positive text-weight-medium">
+                          🎉 Already at ${{ formatCurrency(selectedGoal.target_amount) }}
+                        </span>
+                      </template>
+                      <template v-else-if="selectedGoal.crossDate">
+                        <span class="text-subtitle1 text-weight-medium">
+                          On pace to reach ${{ formatCurrency(selectedGoal.target_amount) }} on
+                          <span style="color: #3BA99F;">{{ formatDay(selectedGoal.crossDate) }}</span>
+                        </span>
+                        <q-chip
+                          v-if="selectedGoal.onTrack === true"
+                          dense color="positive" text-color="white" size="sm" class="q-ml-sm"
+                        >On track for {{ formatDay(selectedGoal.target_date) }}</q-chip>
+                        <q-chip
+                          v-else-if="selectedGoal.onTrack === false"
+                          dense color="orange" text-color="white" size="sm" class="q-ml-sm"
+                        >Drifting — target was {{ formatDay(selectedGoal.target_date) }}</q-chip>
+                      </template>
+                      <template v-else>
+                        <span class="text-subtitle1 text-negative text-weight-medium">
+                          Not on pace to reach ${{ formatCurrency(selectedGoal.target_amount) }} within 5 years at current pace
+                        </span>
+                      </template>
+                      <div v-if="selectedGoal.linked_account_id" class="text-caption text-grey-7">
+                        Tracked against its linked account's balance
+                      </div>
+                      <div v-else class="text-caption text-grey-7">
+                        Tracked against total balance across all accounts
+                      </div>
+                    </div>
+                  </div>
+                </q-card-section>
+              </q-card>
             </div>
 
             <div class="q-mb-md">
@@ -127,6 +188,8 @@ const COLORS = [
   '#795548'
 ]
 
+const GOAL_COLOR = '#FF9800'
+
 export default defineComponent({
   name: 'ForecastPage',
   setup() {
@@ -138,6 +201,7 @@ export default defineComponent({
     const summaryCards = ref(null)
     const forecastChart = ref(null)
     const selectedAccountIds = ref([])
+    const selectedGoalId = ref(null)
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -146,6 +210,35 @@ export default defineComponent({
         maximumFractionDigits: 2
       })
     }
+
+    const formatDay = (dateStr) => {
+      if (!dateStr) return '-'
+      const [y, m, d] = dateStr.split('-').map(Number)
+      return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
+
+    const goalOptions = computed(() => {
+      return (forecastData.value?.goals || []).map(g => ({
+        label: `${g.title} — $${formatCurrency(g.target_amount)}`,
+        value: g.id
+      }))
+    })
+
+    const selectedGoal = computed(() => {
+      return (forecastData.value?.goals || []).find(g => g.id === selectedGoalId.value) || null
+    })
+
+    const goalCardClass = computed(() => {
+      const g = selectedGoal.value
+      if (!g) return 'bg-grey-1'
+      if (g.alreadyMet || g.onTrack === true) return 'bg-green-1'
+      if (g.onTrack === false || !g.crossDate) return 'bg-orange-1'
+      return 'bg-grey-1'
+    })
 
     function getDateRange() {
       const today = new Date()
@@ -177,23 +270,19 @@ export default defineComponent({
           selectedAccountIds.value = data.series.map(s => s.accountId)
         }
 
+        const goals = data.goals || []
+        if (!goals.find(g => g.id === selectedGoalId.value)) {
+          const inFlight = goals.find(g => g.crossDate && !g.alreadyMet)
+          selectedGoalId.value = (inFlight || goals[0])?.id || null
+        }
+
         const accounts = await firebaseApi.getAccounts()
         const active = accounts.filter(a => !a.is_closed)
-        const totalBalance = active.reduce((sum, a) => sum + (a.balance_current || 0), 0)
-        const daysBack = 30
-        const start30 = new Date()
-        start30.setDate(start30.getDate() - daysBack)
-        const start30Str = start30.toISOString().split('T')[0]
-        const todayStr = new Date().toISOString().split('T')[0]
-        const recent = await firebaseApi.getTransactionsByDateRange(start30Str, todayStr)
-        let totalNet = 0
-        recent.forEach(t => {
-          const amt = parseFloat(t.amount) || 0
-          totalNet += t.type === 'income' ? amt : -amt
-        })
         summaryCards.value = {
-          totalBalance,
-          avgDailyNet: totalNet / daysBack
+          totalBalance: active.reduce((sum, a) => sum + (a.balance_current || 0), 0),
+          baselineDailyNet: data.meta?.baselineDailyNet ?? 0,
+          observedDays: data.meta?.observedDays ?? 90,
+          recurringCount: data.meta?.recurringCount ?? 0
         }
 
         await nextTick()
@@ -215,7 +304,7 @@ export default defineComponent({
         chartInstance = null
       }
 
-      const { labels, nowIndex, series, totalValues } = forecastData.value
+      const { labels, nowIndex, series, bucketDates } = forecastData.value
       const selected = selectedAccountIds.value
       const hasSelection = selected.length > 0
       const filteredSeries = hasSelection
@@ -250,6 +339,24 @@ export default defineComponent({
           pointRadius: 3
         })
       })
+
+      // Goal overlay: horizontal target line (only when the target is near the plotted
+      // range, so it doesn't flatten the chart) + vertical marker at the crossing bucket
+      const goal = selectedGoal.value
+      let goalLineY = null
+      let crossBucketIdx = null
+      let suggestedMax
+      if (goal) {
+        const maxVal = Math.max(...datasets.flatMap(ds => ds.data), 0)
+        if (goal.target_amount <= maxVal * 1.6) {
+          goalLineY = goal.target_amount
+          if (goal.target_amount > maxVal) suggestedMax = goal.target_amount * 1.05
+        }
+        if (goal.crossDate && bucketDates && goal.crossDate <= bucketDates[bucketDates.length - 1]) {
+          const idx = bucketDates.findIndex(s => s >= goal.crossDate)
+          if (idx >= 0) crossBucketIdx = idx
+        }
+      }
 
       chartInstance = new Chart(forecastChart.value, {
         type: 'line',
@@ -290,6 +397,7 @@ export default defineComponent({
             },
             y: {
               beginAtZero: false,
+              suggestedMax,
               ticks: {
                 callback (value) {
                   return '$' + Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 })
@@ -317,6 +425,46 @@ export default defineComponent({
             ctx.lineTo(x, chartArea.bottom)
             ctx.stroke()
             ctx.restore()
+          }
+        }, {
+          id: 'goalOverlay',
+          afterDraw (chart) {
+            const { ctx, chartArea, scales } = chart
+            if (!chartArea || (goalLineY === null && crossBucketIdx === null)) return
+
+            if (goalLineY !== null && scales.y) {
+              const y = scales.y.getPixelForValue(goalLineY)
+              if (y >= chartArea.top && y <= chartArea.bottom) {
+                ctx.save()
+                ctx.beginPath()
+                ctx.strokeStyle = GOAL_COLOR
+                ctx.lineWidth = 2
+                ctx.setLineDash([8, 4])
+                ctx.moveTo(chartArea.left, y)
+                ctx.lineTo(chartArea.right, y)
+                ctx.stroke()
+                ctx.font = '600 11px sans-serif'
+                ctx.fillStyle = GOAL_COLOR
+                ctx.textAlign = 'right'
+                ctx.fillText(goal ? goal.title : 'Goal', chartArea.right - 6, y - 5)
+                ctx.restore()
+              }
+            }
+
+            if (crossBucketIdx !== null && scales.x) {
+              const x = scales.x.getPixelForValue(crossBucketIdx)
+              if (x >= chartArea.left && x <= chartArea.right) {
+                ctx.save()
+                ctx.beginPath()
+                ctx.strokeStyle = GOAL_COLOR
+                ctx.lineWidth = 2
+                ctx.setLineDash([2, 3])
+                ctx.moveTo(x, chartArea.top)
+                ctx.lineTo(x, chartArea.bottom)
+                ctx.stroke()
+                ctx.restore()
+              }
+            }
           }
         }]
       })
@@ -346,6 +494,10 @@ export default defineComponent({
       if (forecastData.value && chartInstance) renderChart()
     }, { deep: true })
 
+    watch(selectedGoalId, () => {
+      if (forecastData.value && chartInstance) renderChart()
+    })
+
     return {
       rangePreset,
       loading,
@@ -354,7 +506,12 @@ export default defineComponent({
       summaryCards,
       forecastChart,
       selectedAccountIds,
+      selectedGoalId,
+      goalOptions,
+      selectedGoal,
+      goalCardClass,
       formatCurrency,
+      formatDay,
       loadForecastSeries,
       selectAllAccounts,
       clearAllAccounts,
