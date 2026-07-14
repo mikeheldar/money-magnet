@@ -55,6 +55,52 @@
         </q-card>
       </div>
 
+
+      <!-- Goal pace — on track / drifting verdicts from the forecast engine -->
+      <div v-if="goalPace.length > 0" class="col-12">
+        <q-card style="border-radius: 12px;">
+          <q-card-section>
+            <div class="row items-center q-mb-md">
+              <div class="text-h6" style="color: #3BA99F; font-weight: 600;">Goals — are you on pace?</div>
+              <q-space />
+              <q-btn flat dense no-caps color="primary" label="Open Forecast" to="/forecast" />
+            </div>
+            <div class="row q-col-gutter-md">
+              <div v-for="g in goalPace" :key="g.id" class="col-12 col-md-4">
+                <q-card flat bordered :class="paceCardClass(g)" style="border-radius: 12px; height: 100%;">
+                  <q-card-section class="q-py-sm">
+                    <div class="text-subtitle2" style="font-weight: 600;">{{ g.title }}</div>
+                    <template v-if="g.alreadyMet">
+                      <div class="text-body2 q-mt-xs">🎉 Already at ${{ formatCurrency(g.target_amount) }}</div>
+                    </template>
+                    <template v-else-if="g.crossDate">
+                      <div class="text-body2 q-mt-xs">
+                        On pace to reach ${{ formatCurrency(g.target_amount) }} on
+                        <span style="color: #3BA99F; font-weight: 600;">{{ formatDay(g.crossDate) }}</span>
+                      </div>
+                      <q-chip
+                        v-if="g.onTrack === true"
+                        dense size="sm" color="green" text-color="white" class="q-mt-xs"
+                      >On track for {{ formatDay(g.target_date) }}</q-chip>
+                      <q-chip
+                        v-else-if="g.onTrack === false"
+                        dense size="sm" color="orange" text-color="white" class="q-mt-xs"
+                      >Drifting — target was {{ formatDay(g.target_date) }}</q-chip>
+                    </template>
+                    <template v-else>
+                      <div class="text-body2 q-mt-xs">
+                        Not on pace to reach ${{ formatCurrency(g.target_amount) }} within 5 years
+                      </div>
+                      <q-chip dense size="sm" color="red" text-color="white" class="q-mt-xs">Off pace</q-chip>
+                    </template>
+                  </q-card-section>
+                </q-card>
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
       <!-- Account Balances Chart -->
       <div class="col-12">
         <q-card style="border-radius: 12px;">
@@ -123,6 +169,7 @@ export default defineComponent({
     const balanceGroupBy = ref('category')
     const balanceData = ref([])
     const balanceChart = ref(null)
+    const goalPace = ref([])
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -130,6 +177,46 @@ export default defineComponent({
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       })
+    }
+
+    const formatDay = (dateStr) => {
+      if (!dateStr) return '-'
+      const [y, m, d] = dateStr.split('-').map(Number)
+      return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
+
+    const paceCardClass = (g) => {
+      if (g.alreadyMet || g.onTrack === true) return 'bg-green-1'
+      if (g.onTrack === false || !g.crossDate) return 'bg-orange-1'
+      return ''
+    }
+
+    // Worst news first: off pace, then drifting, then on pace, met last
+    const paceRank = (g) => {
+      if (g.alreadyMet) return 3
+      if (!g.crossDate) return 0
+      if (g.onTrack === false) return 1
+      return 2
+    }
+
+    const loadGoalPace = async () => {
+      try {
+        // Goal crossings are computed over the full 5-year horizon regardless of
+        // window, so a minimal window keeps this call cheap
+        const today = new Date()
+        const startDate = new Date(today.getTime() - 7 * 864e5).toISOString().split('T')[0]
+        const endDate = new Date(today.getTime() + 7 * 864e5).toISOString().split('T')[0]
+        const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain: 'weekly' })
+        goalPace.value = (data?.goals || []).slice().sort((a, b) => paceRank(a) - paceRank(b))
+      } catch (err) {
+        // The pace panel is optional on the dashboard — hide it rather than toast
+        console.error('Error loading goal pace:', err)
+        goalPace.value = []
+      }
     }
 
     const loadSummary = async () => {
@@ -279,6 +366,7 @@ export default defineComponent({
       // Wait a bit for the canvas to be available
       await nextTick()
       await loadBalanceData()
+      loadGoalPace()
     })
 
     // Watch for period changes
@@ -297,7 +385,10 @@ export default defineComponent({
       balanceGroupBy,
       balanceData,
       balanceChart,
+      goalPace,
       formatCurrency,
+      formatDay,
+      paceCardClass,
       loadSummary,
       loadBalanceData
     }
