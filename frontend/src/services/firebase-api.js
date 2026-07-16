@@ -1385,6 +1385,37 @@ export default {
               }
             }
           }
+          const onTrack = g.target_date ? (alreadyMet || (crossDate !== null && crossDate <= g.target_date)) : null
+
+          // Coaching: when the goal is drifting (or has no crossing at all), how much
+          // more per month closes the gap — measured against the projected balance at
+          // the target date, or a 12-month plan when there is no usable target date
+          let coach = null
+          if (!alreadyMet && (onTrack === false || crossDate === null)) {
+            const MONTH_DAYS = 30.44
+            let shortfall, daysLeft, horizonMonths
+            let ti = g.target_date ? dayIndex[g.target_date] : undefined
+            if (ti === undefined && g.target_date && g.target_date > dayStrs[dayStrs.length - 1]) {
+              ti = dayStrs.length - 1
+            }
+            if (ti !== undefined && ti > todayIdx + 7) {
+              shortfall = target - tracked[ti]
+              daysLeft = ti - todayIdx
+              horizonMonths = null
+            } else {
+              shortfall = target - tracked[todayIdx]
+              daysLeft = 365
+              horizonMonths = 12
+            }
+            if (shortfall > 0) {
+              coach = {
+                shortfall: Math.round(shortfall * 100) / 100,
+                requiredExtraPerMonth: Math.round((shortfall / (daysLeft / MONTH_DAYS)) * 100) / 100,
+                horizonMonths
+              }
+            }
+          }
+
           return {
             id: g.id,
             title: g.title,
@@ -1393,9 +1424,48 @@ export default {
             linked_account_id: g.linked_account_id || null,
             alreadyMet,
             crossDate,
-            onTrack: g.target_date ? (alreadyMet || (crossDate !== null && crossDate <= g.target_date)) : null
+            onTrack,
+            coach
           }
         })
+
+      // Where the flexible money is: top non-recurring spending categories over the
+      // baseline window, monthly-ized — recurring bills are excluded because they're
+      // commitments, not levers. Only computed when some goal actually needs coaching.
+      let flexSpend = []
+      if (goals.some(g => g.coach)) {
+        const spendByCat = {}
+        history.forEach(t => {
+          if (t.recurring || t.type !== 'expense' || t.date < baselineStartStr) return
+          const key = t.category_id || 'uncategorized'
+          spendByCat[key] = (spendByCat[key] || 0) + Math.abs(parseFloat(t.amount) || 0)
+        })
+        if (Object.keys(spendByCat).length > 0) {
+          let cats = []
+          try {
+            cats = await this.getCategories()
+          } catch (e) {
+            console.warn('flexSpend: categories unavailable, using ids only')
+          }
+          const byId = {}
+          cats.forEach(c => { byId[c.id] = c })
+          // Roll child categories up to their parent (same grouping rule as Budget/Goals)
+          const rolled = {}
+          Object.entries(spendByCat).forEach(([cid, total]) => {
+            const cat = byId[cid]
+            const rootId = cat && cat.parent_id && byId[cat.parent_id] ? cat.parent_id : cid
+            rolled[rootId] = (rolled[rootId] || 0) + total
+          })
+          flexSpend = Object.entries(rolled)
+            .map(([cid, total]) => ({
+              categoryId: cid === 'uncategorized' ? null : cid,
+              name: byId[cid] ? byId[cid].name : 'Uncategorized',
+              perMonth: Math.round((total / observedDays) * 30.44 * 100) / 100
+            }))
+            .sort((a, b) => b.perMonth - a.perMonth)
+            .slice(0, 3)
+        }
+      }
 
       return {
         labels: buckets.map(b => b.label),
@@ -1408,7 +1478,8 @@ export default {
           baselineDailyNet: Math.round(baselineDailyNet * 100) / 100,
           observedDays,
           recurringCount: Object.keys(recurringAnchors).length,
-          horizonDays: CROSSING_HORIZON_DAYS
+          horizonDays: CROSSING_HORIZON_DAYS,
+          flexSpend
         }
       }
     } catch (error) {

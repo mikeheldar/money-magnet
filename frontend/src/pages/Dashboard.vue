@@ -86,12 +86,14 @@
                         v-else-if="g.onTrack === false"
                         dense size="sm" color="orange" text-color="white" class="q-mt-xs"
                       >Drifting — target was {{ formatDay(g.target_date) }}</q-chip>
+                      <div v-if="g.coach" class="text-caption text-grey-8 q-mt-xs">{{ coachLine(g) }}</div>
                     </template>
                     <template v-else>
                       <div class="text-body2 q-mt-xs">
                         Not on pace to reach ${{ formatCurrency(g.target_amount) }} within 5 years
                       </div>
                       <q-chip dense size="sm" color="red" text-color="white" class="q-mt-xs">Off pace</q-chip>
+                      <div v-if="g.coach" class="text-caption text-grey-8 q-mt-xs">{{ coachLine(g) }}</div>
                     </template>
                   </q-card-section>
                 </q-card>
@@ -170,6 +172,7 @@ export default defineComponent({
     const balanceData = ref([])
     const balanceChart = ref(null)
     const goalPace = ref([])
+    const flexSpend = ref([])
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -187,6 +190,20 @@ export default defineComponent({
         month: 'short',
         day: 'numeric'
       })
+    }
+
+    // One concrete lever per drifting goal: the required extra monthly savings,
+    // pointed at the biggest flexible (non-recurring) spending category
+    const coachLine = (g) => {
+      if (!g.coach) return ''
+      const amt = '$' + formatCurrency(g.coach.requiredExtraPerMonth)
+      const base = g.coach.horizonMonths
+        ? `Get on pace: save ${amt}/mo more to get there in ${g.coach.horizonMonths} months`
+        : `Get back on pace: save ${amt}/mo more to hit your date`
+      const flex = flexSpend.value[0]
+      return flex
+        ? `${base} — biggest flexible spend: ${flex.name} ($${formatCurrency(flex.perMonth)}/mo)`
+        : base
     }
 
     const paceCardClass = (g) => {
@@ -212,6 +229,7 @@ export default defineComponent({
         const endDate = new Date(today.getTime() + 7 * 864e5).toISOString().split('T')[0]
         const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain: 'weekly' })
         goalPace.value = (data?.goals || []).slice().sort((a, b) => paceRank(a) - paceRank(b))
+        flexSpend.value = data?.meta?.flexSpend || []
       } catch (err) {
         // The pace panel is optional on the dashboard — hide it rather than toast
         console.error('Error loading goal pace:', err)
@@ -388,6 +406,7 @@ export default defineComponent({
       goalPace,
       formatCurrency,
       formatDay,
+      coachLine,
       paceCardClass,
       loadSummary,
       loadBalanceData
