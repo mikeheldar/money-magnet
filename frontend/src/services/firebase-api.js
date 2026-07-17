@@ -1422,6 +1422,7 @@ export default {
             target_amount: target,
             target_date: g.target_date || null,
             linked_account_id: g.linked_account_id || null,
+            commitment: g.commitment || null,
             alreadyMet,
             crossDate,
             onTrack,
@@ -1431,8 +1432,25 @@ export default {
 
       // Where the flexible money is: top non-recurring spending categories over the
       // baseline window, monthly-ized — recurring bills are excluded because they're
-      // commitments, not levers. Only computed when some goal actually needs coaching.
+      // commitments, not levers. Categories are fetched once, lazily, only when a
+      // goal needs coaching or has an accepted commitment to check.
       let flexSpend = []
+      const committedGoals = goals.filter(g => g.commitment && g.commitment.category_id && !g.alreadyMet)
+      const byId = {}
+      if (goals.some(g => g.coach) || committedGoals.length > 0) {
+        let cats = []
+        try {
+          cats = await this.getCategories()
+        } catch (e) {
+          console.warn('forecast: categories unavailable, using ids only')
+        }
+        cats.forEach(c => { byId[c.id] = c })
+      }
+      // Roll a child category up to its parent (same grouping rule as Budget/Goals)
+      const rootOf = (cid) => {
+        const cat = byId[cid]
+        return cat && cat.parent_id && byId[cat.parent_id] ? cat.parent_id : cid
+      }
       if (goals.some(g => g.coach)) {
         const spendByCat = {}
         history.forEach(t => {
@@ -1440,31 +1458,48 @@ export default {
           const key = t.category_id || 'uncategorized'
           spendByCat[key] = (spendByCat[key] || 0) + Math.abs(parseFloat(t.amount) || 0)
         })
-        if (Object.keys(spendByCat).length > 0) {
-          let cats = []
-          try {
-            cats = await this.getCategories()
-          } catch (e) {
-            console.warn('flexSpend: categories unavailable, using ids only')
-          }
-          const byId = {}
-          cats.forEach(c => { byId[c.id] = c })
-          // Roll child categories up to their parent (same grouping rule as Budget/Goals)
-          const rolled = {}
-          Object.entries(spendByCat).forEach(([cid, total]) => {
-            const cat = byId[cid]
-            const rootId = cat && cat.parent_id && byId[cat.parent_id] ? cat.parent_id : cid
-            rolled[rootId] = (rolled[rootId] || 0) + total
+        const rolled = {}
+        Object.entries(spendByCat).forEach(([cid, total]) => {
+          const rootId = rootOf(cid)
+          rolled[rootId] = (rolled[rootId] || 0) + total
+        })
+        flexSpend = Object.entries(rolled)
+          .map(([cid, total]) => ({
+            categoryId: cid === 'uncategorized' ? null : cid,
+            name: byId[cid] ? byId[cid].name : 'Uncategorized',
+            perMonth: Math.round((total / observedDays) * 30.44 * 100) / 100
+          }))
+          .sort((a, b) => b.perMonth - a.perMonth)
+          .slice(0, 3)
+      }
+
+      // Commitment adherence: when the user accepted the coach's plan ("save $X/mo
+      // more out of category C"), compare month-to-date spend in C against a
+      // pro-rated allowance = the category's baseline monthly spend minus $X
+      if (committedGoals.length > 0) {
+        const todayStr = dayStrs[todayIdx]
+        const monthStartStr = todayStr.slice(0, 8) + '01'
+        const [cy, cm, cd] = todayStr.split('-').map(Number)
+        const daysInMonth = new Date(cy, cm, 0).getDate()
+        committedGoals.forEach(g => {
+          const rootId = rootOf(g.commitment.category_id)
+          let mtdSpend = 0
+          let baseTotal = 0
+          history.forEach(t => {
+            if (t.recurring || t.type !== 'expense') return
+            if (rootOf(t.category_id || 'uncategorized') !== rootId) return
+            const amt = Math.abs(parseFloat(t.amount) || 0)
+            if (t.date >= baselineStartStr) baseTotal += amt
+            if (t.date >= monthStartStr && t.date <= todayStr) mtdSpend += amt
           })
-          flexSpend = Object.entries(rolled)
-            .map(([cid, total]) => ({
-              categoryId: cid === 'uncategorized' ? null : cid,
-              name: byId[cid] ? byId[cid].name : 'Uncategorized',
-              perMonth: Math.round((total / observedDays) * 30.44 * 100) / 100
-            }))
-            .sort((a, b) => b.perMonth - a.perMonth)
-            .slice(0, 3)
-        }
+          const basePerMonth = (baseTotal / observedDays) * 30.44
+          const allowance = Math.max(0, basePerMonth - Number(g.commitment.extra_per_month || 0))
+          g.commitmentStatus = {
+            mtdSpend: Math.round(mtdSpend * 100) / 100,
+            allowance: Math.round(allowance * 100) / 100,
+            onPace: mtdSpend <= allowance * (cd / daysInMonth)
+          }
+        })
       }
 
       return {
@@ -1684,6 +1719,25 @@ export default {
       return { id, ...goal }
     } catch (error) {
       throw new Error(`Failed to update goal: ${error.message}`)
+    }
+  },
+
+  // Set or clear a goal's accepted get-back-on-pace commitment without touching
+  // any other field (updateGoal overwrites its full whitelist)
+  async setGoalCommitment(id, commitment) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const goalRef = doc(db, 'goals', id)
+      const goalDoc = await getDoc(goalRef)
+      if (!goalDoc.exists()) throw new Error('Goal not found')
+      if (goalDoc.data().user_id !== userId) throw new Error('Unauthorized')
+
+      await updateDoc(goalRef, { commitment: commitment ?? null, updated_at: serverTimestamp() })
+      return { id, commitment: commitment ?? null }
+    } catch (error) {
+      throw new Error(`Failed to set goal commitment: ${error.message}`)
     }
   },
 

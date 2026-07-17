@@ -95,6 +95,30 @@
                       <q-chip dense size="sm" color="red" text-color="white" class="q-mt-xs">Off pace</q-chip>
                       <div v-if="g.coach" class="text-caption text-grey-8 q-mt-xs">{{ coachLine(g) }}</div>
                     </template>
+                    <div v-if="g.coach && !g.commitment" class="q-mt-xs">
+                      <q-btn
+                        dense flat no-caps size="sm" color="primary"
+                        :label="'Commit: save $' + formatCurrency(g.coach.requiredExtraPerMonth) + '/mo'"
+                        :loading="committing === g.id"
+                        @click="commitToPlan(g)"
+                      />
+                    </div>
+                    <div v-if="g.commitment && !g.alreadyMet" class="text-caption q-mt-xs">
+                      <div class="text-grey-8">
+                        Committed {{ formatDay(g.commitment.accepted_date) }}: save
+                        ${{ formatCurrency(g.commitment.extra_per_month) }}/mo more<template v-if="g.commitment.category_name"> from {{ g.commitment.category_name }}</template>
+                        <q-btn dense flat round size="xs" icon="close" color="grey" @click="dropCommitment(g)">
+                          <q-tooltip>Drop this commitment</q-tooltip>
+                        </q-btn>
+                      </div>
+                      <div v-if="g.commitmentStatus">
+                        {{ g.commitment.category_name }}: ${{ formatCurrency(g.commitmentStatus.mtdSpend) }} spent of
+                        ${{ formatCurrency(g.commitmentStatus.allowance) }} this month
+                        <q-chip dense size="sm" :color="g.commitmentStatus.onPace ? 'green' : 'orange'" text-color="white">
+                          {{ g.commitmentStatus.onPace ? 'Keeping it' : 'Over pace' }}
+                        </q-chip>
+                      </div>
+                    </div>
                   </q-card-section>
                 </q-card>
               </div>
@@ -218,6 +242,39 @@ export default defineComponent({
       if (!g.crossDate) return 0
       if (g.onTrack === false) return 1
       return 2
+    }
+
+    const committing = ref(null)
+
+    // Accept the coach's plan: pin the required extra $/mo (and the top flexible
+    // spend category as the lever) onto the goal so the dashboard can hold him to it
+    const commitToPlan = async (g) => {
+      if (!g.coach) return
+      committing.value = g.id
+      try {
+        const flex = flexSpend.value[0]
+        await firebaseApi.setGoalCommitment(g.id, {
+          extra_per_month: g.coach.requiredExtraPerMonth,
+          category_id: flex?.categoryId || null,
+          category_name: flex?.name || null,
+          accepted_date: new Date().toISOString().split('T')[0]
+        })
+        $q.notify({ type: 'positive', message: 'Committed — the dashboard will hold you to it' })
+        await loadGoalPace()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to save commitment' })
+      } finally {
+        committing.value = null
+      }
+    }
+
+    const dropCommitment = async (g) => {
+      try {
+        await firebaseApi.setGoalCommitment(g.id, null)
+        await loadGoalPace()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to drop commitment' })
+      }
     }
 
     const loadGoalPace = async () => {
@@ -407,6 +464,9 @@ export default defineComponent({
       formatCurrency,
       formatDay,
       coachLine,
+      committing,
+      commitToPlan,
+      dropCommitment,
       paceCardClass,
       loadSummary,
       loadBalanceData
