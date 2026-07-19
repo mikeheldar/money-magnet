@@ -117,6 +117,22 @@
                         <q-chip dense size="sm" :color="g.commitmentStatus.onPace ? 'green' : 'orange'" text-color="white">
                           {{ g.commitmentStatus.onPace ? 'Keeping it' : 'Over pace' }}
                         </q-chip>
+                        <div v-if="g.commitmentStatus.weeks && g.commitmentStatus.weeks.length" class="q-mt-xs">
+                          <q-icon
+                            v-for="w in g.commitmentStatus.weeks" :key="w.start"
+                            :name="w.kept ? 'check_circle' : 'cancel'"
+                            :color="w.kept ? 'green' : 'orange'"
+                            size="14px" class="q-mr-xs"
+                          >
+                            <q-tooltip>Week of {{ formatDay(w.start) }}: ${{ formatCurrency(w.spent) }} of ${{ formatCurrency(w.allowance) }}</q-tooltip>
+                          </q-icon>
+                          <span v-if="g.commitmentStatus.keptStreak >= 2" class="text-green-8" style="font-weight: 600;">
+                            {{ g.commitmentStatus.keptStreak }}-week streak — keep it going
+                          </span>
+                          <span v-else-if="g.commitmentStatus.brokenStreak >= 2" class="text-orange-9" style="font-weight: 600;">
+                            Over pace {{ g.commitmentStatus.brokenStreak }} weeks running — tighten {{ g.commitment.category_name }} or adjust the plan
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </q-card-section>

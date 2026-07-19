@@ -1481,23 +1481,67 @@ export default {
         const monthStartStr = todayStr.slice(0, 8) + '01'
         const [cy, cm, cd] = todayStr.split('-').map(Number)
         const daysInMonth = new Date(cy, cm, 0).getDate()
+        const parseDay = (s) => {
+          const [y, m, d] = s.split('-').map(Number)
+          return new Date(y, m - 1, d)
+        }
+        const historyStartStr = toStr(historyStart)
         committedGoals.forEach(g => {
           const rootId = rootOf(g.commitment.category_id)
           let mtdSpend = 0
           let baseTotal = 0
+          const catTxns = []
           history.forEach(t => {
             if (t.recurring || t.type !== 'expense') return
             if (rootOf(t.category_id || 'uncategorized') !== rootId) return
             const amt = Math.abs(parseFloat(t.amount) || 0)
             if (t.date >= baselineStartStr) baseTotal += amt
             if (t.date >= monthStartStr && t.date <= todayStr) mtdSpend += amt
+            catTxns.push({ date: t.date, amt })
           })
           const basePerMonth = (baseTotal / observedDays) * 30.44
           const allowance = Math.max(0, basePerMonth - Number(g.commitment.extra_per_month || 0))
+
+          // Week-over-week adherence since acceptance: each COMPLETED calendar week
+          // (Mon-Sun, only weeks inside the fetched history) is "kept" when category
+          // spend stayed within the weekly allowance; the acceptance week is pro-rated
+          // from the acceptance day. Streaks count back from the last completed week.
+          const weeklyAllowance = allowance * 7 / 30.44
+          const acceptedStr = String(g.commitment.accepted_date || todayStr).slice(0, 10)
+          const weeks = []
+          const firstMonday = parseDay(acceptedStr)
+          firstMonday.setDate(firstMonday.getDate() - ((firstMonday.getDay() + 6) % 7))
+          for (let ws = firstMonday; weeks.length < 26; ws = addDays(ws, 7)) {
+            const wsStr = toStr(ws)
+            const weStr = toStr(addDays(ws, 6))
+            if (weStr >= todayStr) break // current week is not over yet
+            if (wsStr < historyStartStr) continue // no transaction data that far back
+            const fromStr = wsStr > acceptedStr ? wsStr : acceptedStr
+            const coveredDays = Math.round((parseDay(weStr) - parseDay(fromStr)) / 864e5) + 1
+            const weekAllow = weeklyAllowance * (coveredDays / 7)
+            let spent = 0
+            catTxns.forEach(t => {
+              if (t.date >= fromStr && t.date <= weStr) spent += t.amt
+            })
+            weeks.push({
+              start: wsStr,
+              spent: Math.round(spent * 100) / 100,
+              allowance: Math.round(weekAllow * 100) / 100,
+              kept: spent <= weekAllow
+            })
+          }
+          let keptStreak = 0
+          let brokenStreak = 0
+          for (let i = weeks.length - 1; i >= 0 && weeks[i].kept; i--) keptStreak++
+          for (let i = weeks.length - 1; i >= 0 && !weeks[i].kept; i--) brokenStreak++
+
           g.commitmentStatus = {
             mtdSpend: Math.round(mtdSpend * 100) / 100,
             allowance: Math.round(allowance * 100) / 100,
-            onPace: mtdSpend <= allowance * (cd / daysInMonth)
+            onPace: mtdSpend <= allowance * (cd / daysInMonth),
+            weeks: weeks.slice(-8),
+            keptStreak,
+            brokenStreak
           }
         })
       }
