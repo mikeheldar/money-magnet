@@ -77,6 +77,47 @@
                           Not on pace to reach ${{ formatCurrency(selectedGoal.target_amount) }} within 5 years at current pace
                         </span>
                       </template>
+                      <div v-if="selectedGoal.coach" class="text-caption text-grey-8 q-mt-xs">{{ coachLine(selectedGoal) }}</div>
+                      <div v-if="selectedGoal.coach && !selectedGoal.commitment" class="q-mt-xs">
+                        <q-btn
+                          dense flat no-caps size="sm" color="primary"
+                          :label="'Commit: save $' + formatCurrency(selectedGoal.coach.requiredExtraPerMonth) + '/mo'"
+                          :loading="committing === selectedGoal.id"
+                          @click="commitToPlan(selectedGoal)"
+                        />
+                      </div>
+                      <div v-if="selectedGoal.commitment && !selectedGoal.alreadyMet" class="text-caption q-mt-xs">
+                        <div class="text-grey-8">
+                          Committed {{ formatDay(selectedGoal.commitment.accepted_date) }}: save
+                          ${{ formatCurrency(selectedGoal.commitment.extra_per_month) }}/mo more<template v-if="selectedGoal.commitment.category_name"> from {{ selectedGoal.commitment.category_name }}</template>
+                          <q-btn dense flat round size="xs" icon="close" color="grey" @click="dropCommitment(selectedGoal)">
+                            <q-tooltip>Drop this commitment</q-tooltip>
+                          </q-btn>
+                        </div>
+                        <div v-if="selectedGoal.commitmentStatus">
+                          {{ selectedGoal.commitment.category_name }}: ${{ formatCurrency(selectedGoal.commitmentStatus.mtdSpend) }} spent of
+                          ${{ formatCurrency(selectedGoal.commitmentStatus.allowance) }} this month
+                          <q-chip dense size="sm" :color="selectedGoal.commitmentStatus.onPace ? 'green' : 'orange'" text-color="white">
+                            {{ selectedGoal.commitmentStatus.onPace ? 'Keeping it' : 'Over pace' }}
+                          </q-chip>
+                          <div v-if="selectedGoal.commitmentStatus.weeks && selectedGoal.commitmentStatus.weeks.length" class="q-mt-xs">
+                            <q-icon
+                              v-for="w in selectedGoal.commitmentStatus.weeks" :key="w.start"
+                              :name="w.kept ? 'check_circle' : 'cancel'"
+                              :color="w.kept ? 'green' : 'orange'"
+                              size="14px" class="q-mr-xs"
+                            >
+                              <q-tooltip>Week of {{ formatDay(w.start) }}: ${{ formatCurrency(w.spent) }} of ${{ formatCurrency(w.allowance) }}</q-tooltip>
+                            </q-icon>
+                            <span v-if="selectedGoal.commitmentStatus.keptStreak >= 2" class="text-green-8" style="font-weight: 600;">
+                              {{ selectedGoal.commitmentStatus.keptStreak }}-week streak &mdash; keep it going
+                            </span>
+                            <span v-else-if="selectedGoal.commitmentStatus.brokenStreak >= 2" class="text-orange-9" style="font-weight: 600;">
+                              Over pace {{ selectedGoal.commitmentStatus.brokenStreak }} weeks running &mdash; tighten {{ selectedGoal.commitment.category_name }} or adjust the plan
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                       <div v-if="selectedGoal.linked_account_id" class="text-caption text-grey-7">
                         Tracked against its linked account's balance
                       </div>
@@ -202,6 +243,8 @@ export default defineComponent({
     const forecastChart = ref(null)
     const selectedAccountIds = ref([])
     const selectedGoalId = ref(null)
+    const flexSpend = ref([])
+    const committing = ref(null)
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -240,6 +283,51 @@ export default defineComponent({
       return 'bg-grey-1'
     })
 
+    // One concrete lever per drifting goal: the required extra monthly savings,
+    // pointed at the biggest flexible (non-recurring) spending category
+    const coachLine = (g) => {
+      if (!g.coach) return ''
+      const amt = '$' + formatCurrency(g.coach.requiredExtraPerMonth)
+      const base = g.coach.horizonMonths
+        ? `Get on pace: save ${amt}/mo more to get there in ${g.coach.horizonMonths} months`
+        : `Get back on pace: save ${amt}/mo more to hit your date`
+      const flex = flexSpend.value[0]
+      return flex
+        ? `${base} — biggest flexible spend: ${flex.name} ($${formatCurrency(flex.perMonth)}/mo)`
+        : base
+    }
+
+    // Accept the coach's plan: pin the required extra $/mo (and the top flexible
+    // spend category as the lever) onto the goal so the forecast can hold him to it
+    const commitToPlan = async (g) => {
+      if (!g.coach) return
+      committing.value = g.id
+      try {
+        const flex = flexSpend.value[0]
+        await firebaseApi.setGoalCommitment(g.id, {
+          extra_per_month: g.coach.requiredExtraPerMonth,
+          category_id: flex?.categoryId || null,
+          category_name: flex?.name || null,
+          accepted_date: new Date().toISOString().split('T')[0]
+        })
+        $q.notify({ type: 'positive', message: 'Committed — the forecast will hold you to it' })
+        await loadForecastSeries()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to save commitment' })
+      } finally {
+        committing.value = null
+      }
+    }
+
+    const dropCommitment = async (g) => {
+      try {
+        await firebaseApi.setGoalCommitment(g.id, null)
+        await loadForecastSeries()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to drop commitment' })
+      }
+    }
+
     function getDateRange() {
       const today = new Date()
       const preset = RANGE_PRESETS[rangePreset.value] || RANGE_PRESETS['1week']
@@ -266,6 +354,7 @@ export default defineComponent({
         const { startDate, endDate, grain } = getDateRange()
         const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain })
         forecastData.value = data
+        flexSpend.value = data.meta?.flexSpend || []
         if (data.series && data.series.length && selectedAccountIds.value.length === 0) {
           selectedAccountIds.value = data.series.map(s => s.accountId)
         }
@@ -510,6 +599,10 @@ export default defineComponent({
       goalOptions,
       selectedGoal,
       goalCardClass,
+      coachLine,
+      committing,
+      commitToPlan,
+      dropCommitment,
       formatCurrency,
       formatDay,
       loadForecastSeries,
