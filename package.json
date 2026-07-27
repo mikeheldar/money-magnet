@@ -11,15 +11,17 @@
     "install:all": "npm install && cd server && npm install && cd ../frontend && npm install",
     "init:db": "cd server && npm run init-db",
     "start:server": "cd server && npm start",
-    "start:frontend": "cd frontend && npm run dev"
+    "start:frontend": "cd frontend && npm run dev",
+    "firebase:login": "firebase login --no-localhost",
+    "deploy:functions": "firebase deploy --only functions"
   },
   "devDependencies": {
     "axios": "^1.6.0",
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "firebase-tools": "^15.24.0"
   },
   "engines": {
     "node": ">= 18.0.0",
     "npm": ">= 9.0.0"
   }
 }
-
