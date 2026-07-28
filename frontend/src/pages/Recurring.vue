@@ -1,6 +1,53 @@
 <template>
   <q-page padding>
     <div class="col-12">
+      <q-card v-if="suggestions.length" class="q-mb-md" style="border-radius: 12px;">
+        <q-card-section>
+          <div class="text-h6" style="color: #3BA99F; font-weight: 600;">
+            Suggested recurring
+            <q-chip dense color="teal-1" text-color="primary" class="q-ml-sm">{{ suggestions.length }}</q-chip>
+          </div>
+          <div class="text-caption text-grey q-mb-sm">
+            These look like repeating bills or income. Confirming them sharpens your Forecast &mdash; recurring items land on their real dates instead of an average.
+          </div>
+          <q-list separator>
+            <q-item v-for="s in suggestions" :key="s.key">
+              <q-item-section>
+                <q-item-label>
+                  {{ s.name }}
+                  <q-chip
+                    dense
+                    size="sm"
+                    text-color="white"
+                    :color="s.frequency === 'weekly' ? 'blue' : s.frequency === 'monthly' ? 'green' : 'orange'"
+                  >
+                    {{ s.frequency }}
+                  </q-chip>
+                </q-item-label>
+                <q-item-label caption>
+                  ${{ formatCurrency(s.medianAmount) }} {{ s.type }} &middot; seen {{ s.count }}&times; since {{ formatDate(s.firstDate) }}<span v-if="s.account_name"> &middot; {{ s.account_name }}</span>
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <div class="row no-wrap q-gutter-xs">
+                  <q-btn
+                    dense
+                    unelevated
+                    color="primary"
+                    label="Confirm"
+                    :loading="actingKey === s.key"
+                    @click="confirmSuggestion(s)"
+                  />
+                  <q-btn dense flat color="grey" icon="close" @click="dismissSuggestion(s)">
+                    <q-tooltip>Not recurring &mdash; don't suggest again</q-tooltip>
+                  </q-btn>
+                </div>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+      </q-card>
+
       <q-card style="border-radius: 12px;">
         <q-card-section>
           <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Recurring Transactions</div>
@@ -226,6 +273,8 @@ export default defineComponent({
     const selectedFrequency = ref('weekly')
     const transactions = ref([])
     const categories = ref([])
+    const suggestions = ref([])
+    const actingKey = ref(null)
     
     const columns = [
       { name: 'date', label: 'Date', field: 'date', align: 'left', sortable: true },
@@ -343,9 +392,47 @@ export default defineComponent({
       })
     }
 
+    const loadSuggestions = async () => {
+      try {
+        suggestions.value = await firebaseApi.detectRecurringCandidates()
+        console.log('\u2705 [Recurring] Suggestions found:', suggestions.value.length)
+      } catch (err) {
+        console.error('\u274c [Recurring] Suggestion scan failed:', err)
+        suggestions.value = []
+      }
+    }
+
+    const confirmSuggestion = async (s) => {
+      actingKey.value = s.key
+      try {
+        await firebaseApi.confirmRecurringCandidate(s.txnIds, s.frequency)
+        suggestions.value = suggestions.value.filter(x => x.key !== s.key)
+        $q.notify({
+          type: 'positive',
+          message: `${s.name} marked ${s.frequency} \u2014 Forecast will use its real dates`
+        })
+        await loadTransactions()
+      } catch (err) {
+        console.error('\u274c [Recurring] Failed to confirm suggestion:', err)
+        $q.notify({ type: 'negative', message: 'Failed to confirm suggestion' })
+      } finally {
+        actingKey.value = null
+      }
+    }
+
+    const dismissSuggestion = async (s) => {
+      suggestions.value = suggestions.value.filter(x => x.key !== s.key)
+      try {
+        await firebaseApi.dismissRecurringCandidate(s.key)
+      } catch (err) {
+        console.error('\u274c [Recurring] Failed to persist dismissal:', err)
+      }
+    }
+
     onMounted(async () => {
       await loadCategories()
       await loadTransactions()
+      loadSuggestions()
     })
 
     return {
@@ -360,7 +447,11 @@ export default defineComponent({
       formatDate,
       getCategoryIcon,
       editTransaction,
-      deleteTransaction
+      deleteTransaction,
+      suggestions,
+      actingKey,
+      confirmSuggestion,
+      dismissSuggestion
     }
   }
 })

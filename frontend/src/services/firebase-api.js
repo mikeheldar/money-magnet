@@ -12,6 +12,8 @@ import {
   orderBy,
   Timestamp,
   serverTimestamp,
+  setDoc,
+  arrayUnion,
   writeBatch
 } from 'firebase/firestore'
 import {
@@ -1799,6 +1801,157 @@ export default {
       return { success: true }
     } catch (error) {
       throw new Error(`Failed to delete goal: ${error.message}`)
+    }
+  },
+
+  // Recurring auto-detection: group history by account + normalized merchant name,
+  // keep groups that repeat on a weekly/monthly/yearly cadence with consistent amounts,
+  // and offer them as suggestions. Confirming flags the underlying transactions —
+  // exactly what the forecast engine reads, so no separate bookkeeping exists.
+  _normalizeMerchantName(t) {
+    return (t.merchant || t.description || '')
+      .toLowerCase()
+      .replace(/\d+/g, ' ')
+      .replace(/[^a-z&' ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  },
+
+  async detectRecurringCandidates() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const BANDS = {
+        weekly: { lo: 6, hi: 8, perMonth: 4.35 },
+        monthly: { lo: 27, hi: 34, perMonth: 1 },
+        yearly: { lo: 345, hi: 385, perMonth: 1 / 12 }
+      }
+      const HISTORY_DAYS = 760 // ~25 months, enough to see a yearly bill twice
+
+      const today = new Date()
+      const start = new Date(today)
+      start.setDate(start.getDate() - HISTORY_DAYS)
+      const toStr = (d) => d.toISOString().split('T')[0]
+
+      const [txns, accounts, dismissedSnap] = await Promise.all([
+        this.getTransactionsByDateRange(toStr(start), toStr(today)),
+        this.getAccounts(),
+        getDoc(doc(db, 'recurring_dismissals', userId))
+      ])
+      const dismissed = new Set(dismissedSnap.exists() ? dismissedSnap.data().keys || [] : [])
+      const accountName = {}
+      accounts.forEach(a => { accountName[a.id] = a.name })
+
+      // A group where the user already flagged any transaction is theirs to manage —
+      // never re-suggest it
+      const groups = {}
+      txns.forEach(t => {
+        const name = this._normalizeMerchantName(t)
+        if (!name || !t.account_id || !t.date) return
+        const key = `${t.account_id}|${t.type}|${name}`
+        ;(groups[key] = groups[key] || []).push(t)
+      })
+
+      const median = (arr) => {
+        const s = [...arr].sort((a, b) => a - b)
+        const m = Math.floor(s.length / 2)
+        return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+      }
+
+      const candidates = []
+      Object.entries(groups).forEach(([key, list]) => {
+        if (dismissed.has(key)) return
+        if (list.some(t => t.recurring)) return
+
+        // collapse same-day rows so split payments don't fake a cadence
+        const byDate = {}
+        list.forEach(t => { byDate[t.date] = t })
+        const uniq = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date))
+        if (uniq.length < 2) return
+
+        const intervals = []
+        for (let i = 1; i < uniq.length; i++) {
+          intervals.push(Math.round((new Date(uniq[i].date) - new Date(uniq[i - 1].date)) / 864e5))
+        }
+        const med = median(intervals)
+        const freq = Object.keys(BANDS).find(f => med >= BANDS[f].lo && med <= BANDS[f].hi)
+        if (!freq) return
+        if (freq !== 'yearly' && uniq.length < 3) return // weekly/monthly need 3+ hits
+
+        // cadence check: most gaps sit in the band, or on a doubled gap (one missed cycle)
+        const band = BANDS[freq]
+        const ok = intervals.filter(g =>
+          (g >= band.lo && g <= band.hi) || (g >= band.lo * 2 && g <= band.hi * 2)
+        ).length
+        if (ok / intervals.length < 0.7) return
+
+        // amount check: real bills wobble a little; unrelated charges wobble a lot
+        const amounts = uniq.map(t => Math.abs(parseFloat(t.amount) || 0))
+        const medAmt = median(amounts)
+        if (!medAmt) return
+        const close = amounts.filter(a => Math.abs(a - medAmt) <= Math.max(2, medAmt * 0.25)).length
+        if (close / amounts.length < 0.7) return
+
+        const last = uniq[uniq.length - 1]
+        candidates.push({
+          key,
+          account_id: last.account_id,
+          account_name: accountName[last.account_id] || null,
+          name: last.merchant || last.description || 'Unknown',
+          type: last.type,
+          frequency: freq,
+          count: uniq.length,
+          medianAmount: medAmt,
+          monthlyAmount: medAmt * band.perMonth,
+          firstDate: uniq[0].date,
+          lastDate: last.date,
+          txnIds: uniq.map(t => t.id)
+        })
+      })
+
+      return candidates.sort((a, b) => b.monthlyAmount - a.monthlyAmount)
+    } catch (error) {
+      throw new Error(`Failed to detect recurring candidates: ${error.message}`)
+    }
+  },
+
+  async confirmRecurringCandidate(txnIds, frequency) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+      if (!Array.isArray(txnIds) || !txnIds.length) throw new Error('No transactions to update')
+
+      for (let i = 0; i < txnIds.length; i += 400) {
+        const batch = writeBatch(db)
+        txnIds.slice(i, i + 400).forEach(id => {
+          batch.update(doc(db, 'transactions', id), {
+            recurring: true,
+            recurring_frequency: frequency,
+            updated_at: serverTimestamp()
+          })
+        })
+        await batch.commit()
+      }
+      return { updated: txnIds.length, frequency }
+    } catch (error) {
+      throw new Error(`Failed to confirm recurring: ${error.message}`)
+    }
+  },
+
+  async dismissRecurringCandidate(key) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      await setDoc(doc(db, 'recurring_dismissals', userId), {
+        user_id: userId,
+        keys: arrayUnion(key),
+        updated_at: serverTimestamp()
+      }, { merge: true })
+      return { dismissed: key }
+    } catch (error) {
+      throw new Error(`Failed to dismiss suggestion: ${error.message}`)
     }
   },
 
