@@ -86,6 +86,41 @@
                           @click="commitToPlan(selectedGoal)"
                         />
                       </div>
+                      <div v-if="!selectedGoal.alreadyMet && selectedGoal.projection" class="q-mt-sm">
+                        <div class="text-caption text-weight-medium" style="color: #3BA99F;">What if you saved more each month?</div>
+                        <div class="row items-center q-col-gutter-md">
+                          <div class="col-8 col-md-5">
+                            <q-slider
+                              v-model="whatIfExtra"
+                              :min="0"
+                              :max="whatIfMax"
+                              :step="25"
+                              label
+                              :label-value="'+$' + whatIfExtra + '/mo'"
+                              color="primary"
+                              dense
+                            />
+                          </div>
+                          <div class="col-12 col-md-7 text-caption">
+                            <template v-if="whatIfInfo">
+                              <span v-if="whatIfInfo.crossDate">
+                                +${{ whatIfExtra }}/mo &rarr; reach it
+                                <b style="color: #3BA99F;">{{ formatDay(whatIfInfo.crossDate) }}</b>
+                                <span v-if="whatIfInfo.sooner" class="text-green-8"> ({{ whatIfInfo.sooner }} sooner)</span>
+                              </span>
+                              <span v-else class="text-grey-7">+${{ whatIfExtra }}/mo still doesn't get there within 5 years</span>
+                              <q-btn
+                                v-if="!selectedGoal.commitment && whatIfInfo.crossDate"
+                                dense flat no-caps size="sm" color="primary" class="q-ml-sm"
+                                :label="'Commit this plan'"
+                                :loading="committing === selectedGoal.id"
+                                @click="commitWhatIf(selectedGoal)"
+                              />
+                            </template>
+                            <span v-else class="text-grey-6">Drag to see the date move</span>
+                          </div>
+                        </div>
+                      </div>
                       <div v-if="selectedGoal.commitment && !selectedGoal.alreadyMet" class="text-caption q-mt-xs">
                         <div class="text-grey-8">
                           Committed {{ formatDay(selectedGoal.commitment.accepted_date) }}: save
@@ -328,6 +363,74 @@ export default defineComponent({
       }
     }
 
+    // What-if reroute: slide "save an extra $X/mo" and watch the crossing date move.
+    // Crossing math runs on the goal's returned daily trajectory - no engine refetch.
+    const whatIfExtra = ref(0)
+
+    const whatIfMax = computed(() => {
+      const g = selectedGoal.value
+      const coachAmt = g?.coach?.requiredExtraPerMonth || 0
+      return Math.max(500, Math.ceil((coachAmt * 2) / 50) * 50)
+    })
+
+    const dayFromStart = (startStr, n) => {
+      const [y, m, d] = startStr.split('-').map(Number)
+      const out = new Date(y, m - 1, d + n)
+      const mm = String(out.getMonth() + 1).padStart(2, '0')
+      const dd = String(out.getDate()).padStart(2, '0')
+      return `${out.getFullYear()}-${mm}-${dd}`
+    }
+
+    const humanDelta = (days) => {
+      if (days >= 60) return `~${Math.round(days / 30.44)} months`
+      if (days >= 14) return `${Math.round(days / 7)} weeks`
+      if (days >= 1) return `${days} day${days === 1 ? '' : 's'}`
+      return null
+    }
+
+    const whatIfInfo = computed(() => {
+      const g = selectedGoal.value
+      if (!g || g.alreadyMet || !g.projection || !whatIfExtra.value) return null
+      const perDay = whatIfExtra.value / 30.44
+      const daily = g.projection.daily
+      let crossIdx = null
+      for (let i = 1; i < daily.length; i++) {
+        if (daily[i] + perDay * i >= g.target_amount) {
+          crossIdx = i
+          break
+        }
+      }
+      if (crossIdx === null) return { crossDate: null, sooner: null, perDay }
+      const crossDate = dayFromStart(g.projection.start, crossIdx)
+      let sooner = null
+      if (g.crossDate && crossDate < g.crossDate) {
+        const diff = Math.round((Date.parse(g.crossDate) - Date.parse(crossDate)) / 864e5)
+        sooner = humanDelta(diff)
+      }
+      return { crossDate, sooner, perDay }
+    })
+
+    // Pin the explored what-if amount as the commitment (same shape as the coach plan)
+    const commitWhatIf = async (g) => {
+      if (!whatIfExtra.value) return
+      committing.value = g.id
+      try {
+        const flex = flexSpend.value[0]
+        await firebaseApi.setGoalCommitment(g.id, {
+          extra_per_month: whatIfExtra.value,
+          category_id: flex?.categoryId || null,
+          category_name: flex?.name || null,
+          accepted_date: new Date().toISOString().split('T')[0]
+        })
+        $q.notify({ type: 'positive', message: 'Committed - the forecast will hold you to it' })
+        await loadForecastSeries()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to save commitment' })
+      } finally {
+        committing.value = null
+      }
+    }
+
     function getDateRange() {
       const today = new Date()
       const preset = RANGE_PRESETS[rangePreset.value] || RANGE_PRESETS['1week']
@@ -428,6 +531,33 @@ export default defineComponent({
           pointRadius: 3
         })
       })
+
+      // What-if reroute line: the tracked balance with the slider's extra $/mo applied,
+      // dashed, future-only (past buckets are null so the line starts at "now")
+      const wi = whatIfInfo.value
+      const wiGoal = selectedGoal.value
+      if (wi && wiGoal && wiGoal.projection) {
+        const start = wiGoal.projection.start
+        const daily = wiGoal.projection.daily
+        const startMs = Date.parse(start)
+        const rerouteData = bucketDates.map(ds => {
+          const i = Math.round((Date.parse(ds) - startMs) / 864e5)
+          if (i < 0 || i >= daily.length) return null
+          return Math.round((daily[i] + wi.perDay * i) * 100) / 100
+        })
+        if (rerouteData.some(v => v !== null)) {
+          datasets.push({
+            label: `What-if (+$${whatIfExtra.value}/mo)`,
+            data: rerouteData,
+            borderColor: '#9C27B0',
+            backgroundColor: 'transparent',
+            fill: false,
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 0
+          })
+        }
+      }
 
       // Goal overlay: horizontal target line (only when the target is near the plotted
       // range, so it doesn't flatten the chart) + vertical marker at the crossing bucket
@@ -584,7 +714,15 @@ export default defineComponent({
     }, { deep: true })
 
     watch(selectedGoalId, () => {
+      whatIfExtra.value = 0
       if (forecastData.value && chartInstance) renderChart()
+    })
+
+    let whatIfTimer = null
+    watch(whatIfExtra, () => {
+      if (!forecastData.value || !chartInstance) return
+      clearTimeout(whatIfTimer)
+      whatIfTimer = setTimeout(renderChart, 150)
     })
 
     return {
@@ -603,6 +741,10 @@ export default defineComponent({
       committing,
       commitToPlan,
       dropCommitment,
+      whatIfExtra,
+      whatIfMax,
+      whatIfInfo,
+      commitWhatIf,
       formatCurrency,
       formatDay,
       loadForecastSeries,

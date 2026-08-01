@@ -1418,6 +1418,14 @@ export default {
             }
           }
 
+          // Future trajectory of the tracked balance (today -> horizon), so the UI can
+          // answer "what if I saved $X/mo more?" instantly: the what-if crossing is just
+          // the first day where daily[i] + extraPerDay*i reaches the target - no refetch
+          const projectionDaily = []
+          for (let i = todayIdx; i < dayStrs.length; i++) {
+            projectionDaily.push(Math.round(tracked[i] * 100) / 100)
+          }
+
           return {
             id: g.id,
             title: g.title,
@@ -1428,7 +1436,8 @@ export default {
             alreadyMet,
             crossDate,
             onTrack,
-            coach
+            coach,
+            projection: { start: dayStrs[todayIdx], daily: projectionDaily }
           }
         })
 
