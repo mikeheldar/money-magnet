@@ -57,7 +57,7 @@
 
 
       <!-- Goal pace — on track / drifting verdicts from the forecast engine -->
-      <div v-if="goalPace.length > 0" class="col-12">
+      <div v-if="goalPace.length > 0 || spendLimitPace.length > 0" class="col-12">
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="row items-center q-mb-md">
@@ -138,6 +138,34 @@
                   </q-card-section>
                 </q-card>
               </div>
+              <div v-for="s in spendLimitPace" :key="s.id" class="col-12 col-md-4">
+                <q-card flat bordered :class="limitCardClass(s)" style="border-radius: 12px; height: 100%;">
+                  <q-card-section class="q-py-sm">
+                    <div class="text-subtitle2" style="font-weight: 600;">{{ s.title }}</div>
+                    <div class="text-body2 q-mt-xs">
+                      {{ s.category_name }}: ${{ formatCurrency(s.spent) }} of ${{ formatCurrency(s.target_amount) }}
+                      {{ s.defaultPeriod ? 'this month' : 'this period' }} —
+                      <span :class="s.remaining < 0 ? 'text-negative' : ''">{{ limitRemainingLabel(s) }}</span>
+                    </div>
+                    <q-chip
+                      v-if="s.status === 'over' || s.status === 'ended_over'"
+                      dense size="sm" color="red" text-color="white" class="q-mt-xs"
+                    >Over the cap</q-chip>
+                    <q-chip
+                      v-else-if="s.status === 'hot'"
+                      dense size="sm" color="orange" text-color="white" class="q-mt-xs"
+                    >Trending over — ~${{ formatCurrency(s.projected) }} by {{ formatDay(s.end) }}</q-chip>
+                    <q-chip
+                      v-else-if="s.status === 'ended_kept'"
+                      dense size="sm" color="green" text-color="white" class="q-mt-xs"
+                    >Kept the cap 🎉</q-chip>
+                    <q-chip
+                      v-else
+                      dense size="sm" color="green" text-color="white" class="q-mt-xs"
+                    >Within cap</q-chip>
+                  </q-card-section>
+                </q-card>
+              </div>
             </div>
           </q-card-section>
         </q-card>
@@ -212,6 +240,7 @@ export default defineComponent({
     const balanceData = ref([])
     const balanceChart = ref(null)
     const goalPace = ref([])
+    const spendLimitPace = ref([])
     const flexSpend = ref([])
     let chartInstance = null
 
@@ -260,6 +289,25 @@ export default defineComponent({
       return 2
     }
 
+    // Spending-limit goals from the same engine call: worst news first, red when the
+    // cap is blown, orange when the burn rate says it will be
+    const limitRank = (s) => {
+      if (s.status === 'over' || s.status === 'ended_over') return 0
+      if (s.status === 'hot') return 1
+      if (s.status === 'ok') return 2
+      return 3
+    }
+
+    const limitCardClass = (s) => {
+      if (s.status === 'over' || s.status === 'ended_over') return 'bg-red-1'
+      if (s.status === 'hot') return 'bg-orange-1'
+      return 'bg-green-1'
+    }
+
+    const limitRemainingLabel = (s) => s.remaining >= 0
+      ? `$${formatCurrency(s.remaining)} left`
+      : `over by $${formatCurrency(-s.remaining)}`
+
     const committing = ref(null)
 
     // Accept the coach's plan: pin the required extra $/mo (and the top flexible
@@ -302,11 +350,13 @@ export default defineComponent({
         const endDate = new Date(today.getTime() + 7 * 864e5).toISOString().split('T')[0]
         const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain: 'weekly' })
         goalPace.value = (data?.goals || []).slice().sort((a, b) => paceRank(a) - paceRank(b))
+        spendLimitPace.value = (data?.spendLimits || []).slice().sort((a, b) => limitRank(a) - limitRank(b))
         flexSpend.value = data?.meta?.flexSpend || []
       } catch (err) {
         // The pace panel is optional on the dashboard — hide it rather than toast
         console.error('Error loading goal pace:', err)
         goalPace.value = []
+        spendLimitPace.value = []
       }
     }
 
@@ -477,6 +527,7 @@ export default defineComponent({
       balanceData,
       balanceChart,
       goalPace,
+      spendLimitPace,
       formatCurrency,
       formatDay,
       coachLine,
@@ -484,6 +535,8 @@ export default defineComponent({
       commitToPlan,
       dropCommitment,
       paceCardClass,
+      limitCardClass,
+      limitRemainingLabel,
       loadSummary,
       loadBalanceData
     }

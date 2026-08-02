@@ -1557,6 +1557,84 @@ export default {
         })
       }
 
+      // Spending-limit goals: cap adherence for the goal's period (custom range, or the
+      // current calendar month). Mirrors Goals.vue exactly — its own unfiltered fetch over
+      // the union of goal ranges, category + direct children, recurring included — so this
+      // verdict always matches the number on the Goals page. Fetch only fires when
+      // spend-limit goals exist.
+      let spendLimits = []
+      const slGoals = allGoals.filter(g =>
+        (g.goal_type || 'save_up') === 'spend_limit' && g.category_id && Number(g.target_amount) > 0)
+      if (slGoals.length > 0) {
+        let slCats = Object.values(byId)
+        if (slCats.length === 0) {
+          try {
+            slCats = await this.getCategories()
+          } catch (e) {
+            console.warn('forecast: categories unavailable for spend limits')
+          }
+        }
+        const slRange = (g) => {
+          if (g.target_start_date && g.target_end_date) {
+            return { start: g.target_start_date, end: g.target_end_date }
+          }
+          const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+          const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+          return { start: monthStart.toISOString().split('T')[0], end: monthEnd.toISOString().split('T')[0] }
+        }
+        const slRanges = slGoals.map(slRange)
+        const slStart = slRanges.map(r => r.start).sort()[0]
+        const slEnd = slRanges.map(r => r.end).sort().slice(-1)[0]
+        let slTxns = []
+        try {
+          slTxns = await this.getTransactionsByDateRange(slStart, slEnd)
+        } catch (e) {
+          console.warn('forecast: spend-limit transactions unavailable:', e.message)
+        }
+        const parseD = (s) => {
+          const [y, m, d] = s.split('-').map(Number)
+          return new Date(y, m - 1, d)
+        }
+        spendLimits = slGoals.map((g, i) => {
+          const { start, end } = slRanges[i]
+          const ids = new Set([g.category_id])
+          slCats.forEach(c => { if (c.parent_id === g.category_id) ids.add(c.id) })
+          let spent = 0
+          slTxns.forEach(t => {
+            if (t.type !== 'expense' || !ids.has(t.category_id)) return
+            if (!t.date || t.date < start || t.date > end) return
+            spent += Math.abs(parseFloat(t.amount) || 0)
+          })
+          const target = Number(g.target_amount)
+          const totalDays = Math.max(1, Math.round((parseD(end) - parseD(start)) / 864e5) + 1)
+          const doneDays = Math.min(totalDays, Math.max(0, Math.round((parseD(todayStr) - parseD(start)) / 864e5) + 1))
+          const elapsedFrac = doneDays / totalDays
+          const ended = todayStr > end
+          // 'hot' = under the cap but ahead of the pro-rated burn rate for this point
+          // in the period — the drift signal, before the cap is actually blown
+          let status
+          if (ended) status = spent <= target ? 'ended_kept' : 'ended_over'
+          else if (spent > target) status = 'over'
+          else if (spent > target * elapsedFrac) status = 'hot'
+          else status = 'ok'
+          const cat = slCats.find(c => c.id === g.category_id)
+          return {
+            id: g.id,
+            title: g.title,
+            category_id: g.category_id,
+            category_name: cat ? cat.name : 'Category',
+            target_amount: target,
+            start,
+            end,
+            defaultPeriod: !(g.target_start_date && g.target_end_date),
+            spent: Math.round(spent * 100) / 100,
+            remaining: Math.round((target - spent) * 100) / 100,
+            projected: elapsedFrac > 0 ? Math.round((spent / elapsedFrac) * 100) / 100 : Math.round(spent * 100) / 100,
+            status
+          }
+        })
+      }
+
       return {
         labels: buckets.map(b => b.label),
         nowIndex,
@@ -1564,6 +1642,7 @@ export default {
         totalValues,
         bucketDates: buckets.map(b => b.dateStr),
         goals,
+        spendLimits,
         meta: {
           baselineDailyNet: Math.round(baselineDailyNet * 100) / 100,
           observedDays,
