@@ -165,6 +165,42 @@
               </q-card>
             </div>
 
+            <!-- Spending caps — same engine payload the Dashboard pace panel renders,
+                 so the two pages always agree on cap adherence -->
+            <div v-if="spendLimitCards.length" class="q-mb-md">
+              <div class="text-subtitle2 q-mb-xs" style="color: #3BA99F; font-weight: 600;">Spending caps</div>
+              <div class="row q-col-gutter-md">
+                <div v-for="s in spendLimitCards" :key="s.id" class="col-12 col-md-4">
+                  <q-card flat bordered :class="limitCardClass(s)" style="border-radius: 12px; height: 100%;">
+                    <q-card-section class="q-py-sm">
+                      <div class="text-subtitle2" style="font-weight: 600;">{{ s.title }}</div>
+                      <div class="text-body2 q-mt-xs">
+                        {{ s.category_name }}: ${{ formatCurrency(s.spent) }} of ${{ formatCurrency(s.target_amount) }}
+                        {{ s.defaultPeriod ? 'this month' : 'this period' }} &mdash;
+                        <span :class="s.remaining < 0 ? 'text-negative' : ''">{{ limitRemainingLabel(s) }}</span>
+                      </div>
+                      <q-chip
+                        v-if="s.status === 'over' || s.status === 'ended_over'"
+                        dense size="sm" color="red" text-color="white" class="q-mt-xs"
+                      >Over the cap</q-chip>
+                      <q-chip
+                        v-else-if="s.status === 'hot'"
+                        dense size="sm" color="orange" text-color="white" class="q-mt-xs"
+                      >Trending over &mdash; ~${{ formatCurrency(s.projected) }} by {{ formatDay(s.end) }}</q-chip>
+                      <q-chip
+                        v-else-if="s.status === 'ended_kept'"
+                        dense size="sm" color="green" text-color="white" class="q-mt-xs"
+                      >Kept the cap 🎉</q-chip>
+                      <q-chip
+                        v-else
+                        dense size="sm" color="green" text-color="white" class="q-mt-xs"
+                      >Within cap</q-chip>
+                    </q-card-section>
+                  </q-card>
+                </div>
+              </div>
+            </div>
+
             <div class="q-mb-md">
               <span class="text-subtitle2 q-mr-sm">Range:</span>
               <q-btn-toggle
@@ -317,6 +353,29 @@ export default defineComponent({
       if (g.onTrack === false || !g.crossDate) return 'bg-orange-1'
       return 'bg-grey-1'
     })
+
+    // Spending-cap goals from the same engine call — rendered with the exact
+    // card semantics the Dashboard pace panel uses (worst news first)
+    const limitRank = (s) => {
+      if (s.status === 'over' || s.status === 'ended_over') return 0
+      if (s.status === 'hot') return 1
+      if (s.status === 'ok') return 2
+      return 3
+    }
+
+    const spendLimitCards = computed(() => {
+      return (forecastData.value?.spendLimits || []).slice().sort((a, b) => limitRank(a) - limitRank(b))
+    })
+
+    const limitCardClass = (s) => {
+      if (s.status === 'over' || s.status === 'ended_over') return 'bg-red-1'
+      if (s.status === 'hot') return 'bg-orange-1'
+      return 'bg-green-1'
+    }
+
+    const limitRemainingLabel = (s) => s.remaining >= 0
+      ? `$${formatCurrency(s.remaining)} left`
+      : `over by $${formatCurrency(-s.remaining)}`
 
     // One concrete lever per drifting goal: the required extra monthly savings,
     // pointed at the biggest flexible (non-recurring) spending category
@@ -737,6 +796,9 @@ export default defineComponent({
       goalOptions,
       selectedGoal,
       goalCardClass,
+      spendLimitCards,
+      limitCardClass,
+      limitRemainingLabel,
       coachLine,
       committing,
       commitToPlan,
