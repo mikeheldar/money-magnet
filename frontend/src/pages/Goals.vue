@@ -7,6 +7,9 @@
           <q-card-section class="bg-grey-1">
             <div class="text-caption text-grey-7 q-mb-xs">Daily mantra</div>
             <div class="text-h6" style="color: #2c3e50;">{{ quoteOfTheDay }}</div>
+            <div v-if="groundedLine" class="text-body2 text-weight-medium q-mt-sm" style="color: #3BA99F;">
+              {{ groundedLine }}
+            </div>
           </q-card-section>
         </q-card>
 
@@ -313,6 +316,7 @@ export default defineComponent({
     const goalToDelete = ref(null)
 
     const quoteOfTheDay = computed(() => getQuoteOfTheDay())
+    const groundedLine = ref('')
 
     const form = ref({
       title: '',
@@ -618,13 +622,62 @@ export default defineComponent({
       }
     }
 
+    // Ground the daily mantra in real numbers: collect TRUE facts from the
+    // forecast engine (met goal / kept streak / on-pace date / cap discipline /
+    // the concrete lever) and rotate through them by day of year — the belief
+    // layer wired to the user's actual data, not just words.
+    const loadGroundedLine = async () => {
+      try {
+        // Minimal window — crossings/adherence compute over the full horizon anyway
+        const today = new Date()
+        const startDate = new Date(today.getTime() - 7 * 864e5).toISOString().split('T')[0]
+        const endDate = new Date(today.getTime() + 7 * 864e5).toISOString().split('T')[0]
+        const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain: 'weekly' })
+        const fmtDate = (d) => {
+          const [y, m, day] = d.split('-').map(Number)
+          return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        }
+        const lines = []
+        const gs = data?.goals || []
+        gs.filter(g => g.alreadyMet).forEach(g => {
+          lines.push(`\u{1F389} ${g.title} is fully funded \u2014 $${formatCurrency(g.target_amount)} is real, not a wish.`)
+        })
+        gs.filter(g => g.commitmentStatus && g.commitmentStatus.keptStreak >= 2).forEach(g => {
+          lines.push(`You've kept your ${g.title} plan ${g.commitmentStatus.keptStreak} weeks running \u2014 belief, backed by action.`)
+        })
+        gs.filter(g => !g.alreadyMet && g.crossDate && g.onTrack !== false).forEach(g => {
+          lines.push(`Your numbers agree: on pace to reach ${g.title} ($${formatCurrency(g.target_amount)}) on ${fmtDate(g.crossDate)}.`)
+        })
+        gs.filter(g => !g.alreadyMet && g.projection && g.projection.daily[0] > 0 && g.target_amount > 0).forEach(g => {
+          const cur = g.projection.daily[0]
+          const pct = Math.min(99, Math.round((cur / g.target_amount) * 100))
+          if (pct >= 5) lines.push(`You've already built $${formatCurrency(cur)} toward ${g.title} \u2014 ${pct}% of the way there.`)
+        })
+        ;(data?.spendLimits || []).filter(l => l.status === 'ok' && l.remaining > 0).forEach(l => {
+          lines.push(`Discipline is showing: ${l.category_name} is $${formatCurrency(l.remaining)} under its cap${l.defaultPeriod ? ' this month' : ''}.`)
+        })
+        gs.filter(g => !g.alreadyMet && g.coach && g.coach.requiredExtraPerMonth > 0).forEach(g => {
+          lines.push(`Make it true today: $${formatCurrency(g.coach.requiredExtraPerMonth)}/mo more puts ${g.title} back on track.`)
+        })
+        if (lines.length === 0) return
+        const startOfYear = new Date(today.getFullYear(), 0, 0)
+        const dayOfYear = Math.floor((today - startOfYear) / 864e5)
+        groundedLine.value = lines[dayOfYear % lines.length]
+      } catch (err) {
+        // The grounded line is a bonus — never block or toast the vision board
+        console.error('Error loading grounded mantra line:', err)
+      }
+    }
+
     onMounted(async () => {
       await Promise.all([loadGoals(), loadCategories(), loadAccounts()])
       loadSpending()
+      loadGroundedLine()
     })
 
     return {
       quoteOfTheDay,
+      groundedLine,
       goals,
       accounts,
       accountOptions,
