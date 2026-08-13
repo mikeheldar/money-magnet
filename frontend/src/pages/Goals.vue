@@ -5,8 +5,9 @@
         <!-- Daily quote / mantra banner -->
         <q-card class="q-mb-md" style="border-left: 4px solid #3BA99F;">
           <q-card-section class="bg-grey-1">
-            <div class="text-caption text-grey-7 q-mb-xs">Daily mantra</div>
-            <div class="text-h6" style="color: #2c3e50;">{{ quoteOfTheDay }}</div>
+            <div class="text-caption text-grey-7 q-mb-xs">{{ personalMantra ? 'Your mantra' : 'Daily mantra' }}</div>
+            <div class="text-h6" style="color: #2c3e50;">{{ personalMantra ? '“' + personalMantra.text + '”' : quoteOfTheDay }}</div>
+            <div v-if="personalMantra" class="text-caption text-grey-6 q-mt-xs">— your words, for {{ personalMantra.goalTitle }}</div>
             <div v-if="groundedLine" class="text-body2 text-weight-medium q-mt-sm" style="color: #3BA99F;">
               {{ groundedLine }}
             </div>
@@ -63,6 +64,9 @@
                         </div>
                         <p v-if="goal.description" class="text-body2 text-grey-8 q-mt-none q-mb-sm goal-description">
                           {{ truncate(goal.description, 120) }}
+                        </p>
+                        <p v-if="goal.mantra" class="text-body2 text-italic q-mt-none q-mb-sm" style="color: #3BA99F;">
+                          “{{ truncate(goal.mantra, 140) }}”
                         </p>
                         <div v-if="goal.target_date || (goal.target_start_date && goal.target_end_date)" class="text-caption text-grey-7 q-mb-sm">
                           {{ formatTimePeriod(goal) }}
@@ -159,6 +163,14 @@
             type="textarea"
             rows="3"
             class="q-mb-md"
+          />
+          <q-input
+            v-model="form.mantra"
+            label="Your mantra (optional)"
+            outlined
+            dense
+            class="q-mb-md"
+            hint="Your belief for this goal, in your own words — it headlines the daily banner, grounded with your real numbers"
           />
           <q-btn-toggle
             v-model="form.goal_type"
@@ -316,11 +328,24 @@ export default defineComponent({
     const goalToDelete = ref(null)
 
     const quoteOfTheDay = computed(() => getQuoteOfTheDay())
+
+    // The user's own belief statement, rotated daily across goals that have one —
+    // when present it replaces the stock quote as the banner headline
+    const personalMantra = computed(() => {
+      const withMantra = goals.value.filter(g => g.mantra && g.mantra.trim())
+      if (!withMantra.length) return null
+      const today = new Date()
+      const startOfYear = new Date(today.getFullYear(), 0, 0)
+      const dayOfYear = Math.floor((today - startOfYear) / 864e5)
+      const g = withMantra[dayOfYear % withMantra.length]
+      return { text: g.mantra.trim(), goalId: g.id, goalTitle: g.title }
+    })
     const groundedLine = ref('')
 
     const form = ref({
       title: '',
       description: '',
+      mantra: '',
       links: [],
       target_date: null,
       target_start_date: null,
@@ -337,6 +362,7 @@ export default defineComponent({
       form.value = {
         title: '',
         description: '',
+        mantra: '',
         links: [],
         target_date: null,
         target_start_date: null,
@@ -529,6 +555,7 @@ export default defineComponent({
       form.value = {
         title: goal.title,
         description: goal.description || '',
+        mantra: goal.mantra || '',
         links: Array.isArray(goal.links) && goal.links.length
           ? goal.links.map(l => ({ url: l.url || '', label: l.label || '' }))
           : [],
@@ -561,6 +588,7 @@ export default defineComponent({
       const payload = {
         title: form.value.title.trim(),
         description: (form.value.description || '').trim() || null,
+        mantra: (form.value.mantra || '').trim() || null,
         links,
         target_date: form.value.target_date || null,
         target_start_date: form.value.target_start_date || null,
@@ -640,29 +668,32 @@ export default defineComponent({
         const lines = []
         const gs = data?.goals || []
         gs.filter(g => g.alreadyMet).forEach(g => {
-          lines.push(`\u{1F389} ${g.title} is fully funded \u2014 $${formatCurrency(g.target_amount)} is real, not a wish.`)
+          lines.push({ id: g.id, text: `\u{1F389} ${g.title} is fully funded \u2014 $${formatCurrency(g.target_amount)} is real, not a wish.` })
         })
         gs.filter(g => g.commitmentStatus && g.commitmentStatus.keptStreak >= 2).forEach(g => {
-          lines.push(`You've kept your ${g.title} plan ${g.commitmentStatus.keptStreak} weeks running \u2014 belief, backed by action.`)
+          lines.push({ id: g.id, text: `You've kept your ${g.title} plan ${g.commitmentStatus.keptStreak} weeks running \u2014 belief, backed by action.` })
         })
         gs.filter(g => !g.alreadyMet && g.crossDate && g.onTrack !== false).forEach(g => {
-          lines.push(`Your numbers agree: on pace to reach ${g.title} ($${formatCurrency(g.target_amount)}) on ${fmtDate(g.crossDate)}.`)
+          lines.push({ id: g.id, text: `Your numbers agree: on pace to reach ${g.title} ($${formatCurrency(g.target_amount)}) on ${fmtDate(g.crossDate)}.` })
         })
         gs.filter(g => !g.alreadyMet && g.projection && g.projection.daily[0] > 0 && g.target_amount > 0).forEach(g => {
           const cur = g.projection.daily[0]
           const pct = Math.min(99, Math.round((cur / g.target_amount) * 100))
-          if (pct >= 5) lines.push(`You've already built $${formatCurrency(cur)} toward ${g.title} \u2014 ${pct}% of the way there.`)
+          if (pct >= 5) lines.push({ id: g.id, text: `You've already built $${formatCurrency(cur)} toward ${g.title} \u2014 ${pct}% of the way there.` })
         })
         ;(data?.spendLimits || []).filter(l => l.status === 'ok' && l.remaining > 0).forEach(l => {
-          lines.push(`Discipline is showing: ${l.category_name} is $${formatCurrency(l.remaining)} under its cap${l.defaultPeriod ? ' this month' : ''}.`)
+          lines.push({ id: l.id, text: `Discipline is showing: ${l.category_name} is $${formatCurrency(l.remaining)} under its cap${l.defaultPeriod ? ' this month' : ''}.` })
         })
         gs.filter(g => !g.alreadyMet && g.coach && g.coach.requiredExtraPerMonth > 0).forEach(g => {
-          lines.push(`Make it true today: $${formatCurrency(g.coach.requiredExtraPerMonth)}/mo more puts ${g.title} back on track.`)
+          lines.push({ id: g.id, text: `Make it true today: $${formatCurrency(g.coach.requiredExtraPerMonth)}/mo more puts ${g.title} back on track.` })
         })
         if (lines.length === 0) return
         const startOfYear = new Date(today.getFullYear(), 0, 0)
         const dayOfYear = Math.floor((today - startOfYear) / 864e5)
-        groundedLine.value = lines[dayOfYear % lines.length]
+        // When the banner headlines a personal mantra, prefer a fact about THAT goal
+        const preferred = personalMantra.value ? lines.filter(l => l.id === personalMantra.value.goalId) : []
+        const pool = preferred.length ? preferred : lines
+        groundedLine.value = pool[dayOfYear % pool.length].text
       } catch (err) {
         // The grounded line is a bonus — never block or toast the vision board
         console.error('Error loading grounded mantra line:', err)
@@ -677,6 +708,7 @@ export default defineComponent({
 
     return {
       quoteOfTheDay,
+      personalMantra,
       groundedLine,
       goals,
       accounts,

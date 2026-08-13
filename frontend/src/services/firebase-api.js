@@ -1836,6 +1836,7 @@ export default {
       const updates = {
         title: goal.title,
         description: goal.description ?? null,
+        mantra: goal.mantra ?? null,
         links: goal.links ?? [],
         target_date: goal.target_date ?? null,
         target_start_date: goal.target_start_date ?? null,
