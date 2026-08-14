@@ -1429,6 +1429,7 @@ export default {
           return {
             id: g.id,
             title: g.title,
+            mantra: g.mantra || null,
             target_amount: target,
             target_date: g.target_date || null,
             linked_account_id: g.linked_account_id || null,

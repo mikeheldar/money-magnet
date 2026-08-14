@@ -4,8 +4,16 @@
       <div class="col-12">
         <q-card flat bordered class="q-mb-md" style="border-radius: 12px; border-left: 4px solid #3BA99F;">
           <q-card-section class="q-py-sm">
-            <div class="text-h6" style="color: #3BA99F; font-weight: 600;">Where intention meets numbers—manifest your financial future.</div>
-            <div class="text-body2 text-grey-7 q-mt-xs">Set your money intentions, track where you are, and see where you're going.</div>
+            <template v-if="mantraBanner">
+              <div class="text-caption text-grey-7 q-mb-xs">Your mantra</div>
+              <div class="text-h6" style="color: #3BA99F; font-weight: 600;">“{{ mantraBanner.text }}”</div>
+              <div class="text-caption text-grey-6 q-mt-xs">— your words, for {{ mantraBanner.goalTitle }}</div>
+            </template>
+            <template v-else>
+              <div class="text-h6" style="color: #3BA99F; font-weight: 600;">Where intention meets numbers—manifest your financial future.</div>
+              <div class="text-body2 text-grey-7 q-mt-xs">Set your money intentions, track where you are, and see where you're going.</div>
+            </template>
+            <div v-if="groundedLine" class="text-body2 text-weight-medium q-mt-sm" style="color: #3BA99F;">{{ groundedLine }}</div>
           </q-card-section>
         </q-card>
         <q-card style="border-radius: 12px;">
@@ -242,6 +250,8 @@ export default defineComponent({
     const goalPace = ref([])
     const spendLimitPace = ref([])
     const flexSpend = ref([])
+    const mantraBanner = ref(null)
+    const groundedLine = ref('')
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -341,6 +351,49 @@ export default defineComponent({
       }
     }
 
+    // Belief layer on the landing page: the user's own mantra (rotated daily)
+    // headlines the intention card, grounded with one TRUE fact — mirrors
+    // Goals.vue's banner but reuses the pace panel's engine call, zero extra fetches
+    const updateBeliefBanner = (data) => {
+      const today = new Date()
+      const startOfYear = new Date(today.getFullYear(), 0, 0)
+      const dayOfYear = Math.floor((today - startOfYear) / 864e5)
+      const gs = data?.goals || []
+      const withMantra = gs.filter(g => g.mantra && g.mantra.trim())
+      if (withMantra.length) {
+        const g = withMantra[dayOfYear % withMantra.length]
+        mantraBanner.value = { text: g.mantra.trim(), goalId: g.id, goalTitle: g.title }
+      } else {
+        mantraBanner.value = null
+      }
+      const lines = []
+      gs.filter(g => g.alreadyMet).forEach(g => {
+        lines.push({ id: g.id, text: `🎉 ${g.title} is fully funded — $${formatCurrency(g.target_amount)} is real, not a wish.` })
+      })
+      gs.filter(g => g.commitmentStatus && g.commitmentStatus.keptStreak >= 2).forEach(g => {
+        lines.push({ id: g.id, text: `You've kept your ${g.title} plan ${g.commitmentStatus.keptStreak} weeks running — belief, backed by action.` })
+      })
+      gs.filter(g => !g.alreadyMet && g.crossDate && g.onTrack !== false).forEach(g => {
+        lines.push({ id: g.id, text: `Your numbers agree: on pace to reach ${g.title} ($${formatCurrency(g.target_amount)}) on ${formatDay(g.crossDate)}.` })
+      })
+      gs.filter(g => !g.alreadyMet && g.projection && g.projection.daily[0] > 0 && g.target_amount > 0).forEach(g => {
+        const cur = g.projection.daily[0]
+        const pct = Math.min(99, Math.round((cur / g.target_amount) * 100))
+        if (pct >= 5) lines.push({ id: g.id, text: `You've already built $${formatCurrency(cur)} toward ${g.title} — ${pct}% of the way there.` })
+      })
+      ;(data?.spendLimits || []).filter(l => l.status === 'ok' && l.remaining > 0).forEach(l => {
+        lines.push({ id: l.id, text: `Discipline is showing: ${l.category_name} is $${formatCurrency(l.remaining)} under its cap${l.defaultPeriod ? ' this month' : ''}.` })
+      })
+      gs.filter(g => !g.alreadyMet && g.coach && g.coach.requiredExtraPerMonth > 0).forEach(g => {
+        lines.push({ id: g.id, text: `Make it true today: $${formatCurrency(g.coach.requiredExtraPerMonth)}/mo more puts ${g.title} back on track.` })
+      })
+      if (!lines.length) { groundedLine.value = ''; return }
+      // When the banner headlines a personal mantra, prefer a fact about THAT goal
+      const preferred = mantraBanner.value ? lines.filter(l => l.id === mantraBanner.value.goalId) : []
+      const pool = preferred.length ? preferred : lines
+      groundedLine.value = pool[dayOfYear % pool.length].text
+    }
+
     const loadGoalPace = async () => {
       try {
         // Goal crossings are computed over the full 5-year horizon regardless of
@@ -352,11 +405,14 @@ export default defineComponent({
         goalPace.value = (data?.goals || []).slice().sort((a, b) => paceRank(a) - paceRank(b))
         spendLimitPace.value = (data?.spendLimits || []).slice().sort((a, b) => limitRank(a) - limitRank(b))
         flexSpend.value = data?.meta?.flexSpend || []
+        updateBeliefBanner(data)
       } catch (err) {
         // The pace panel is optional on the dashboard — hide it rather than toast
         console.error('Error loading goal pace:', err)
         goalPace.value = []
         spendLimitPace.value = []
+        mantraBanner.value = null
+        groundedLine.value = ''
       }
     }
 
@@ -528,6 +584,8 @@ export default defineComponent({
       balanceChart,
       goalPace,
       spendLimitPace,
+      mantraBanner,
+      groundedLine,
       formatCurrency,
       formatDay,
       coachLine,
