@@ -2045,6 +2045,52 @@ export default {
     }
   },
 
+  // ============ Belief Journal ============
+  // One entry per day: the belief the banner headlined + the true fact that
+  // grounded it. Written fire-and-forget by the banner; a same-day rewrite
+  // just refreshes the evidence (latest wins). setDoc merge deep-merges the
+  // entries map, so each day lands without clobbering the others.
+  async saveBeliefEntry(entry) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const d = new Date()
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      await setDoc(doc(db, 'belief_journal', userId), {
+        user_id: userId,
+        entries: {
+          [day]: {
+            mantra: entry.mantra || null,
+            personal: !!entry.personal,
+            goal_id: entry.goalId || null,
+            goal_title: entry.goalTitle || null,
+            fact: entry.fact || null
+          }
+        },
+        updated_at: serverTimestamp()
+      }, { merge: true })
+      return { day }
+    } catch (error) {
+      throw new Error(`Failed to save belief entry: ${error.message}`)
+    }
+  },
+
+  async getBeliefJournal(limitDays = 14) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const snap = await getDoc(doc(db, 'belief_journal', userId))
+      if (!snap.exists()) return []
+      const entries = snap.data().entries || {}
+      return Object.keys(entries).sort().reverse().slice(0, limitDays)
+        .map(day => ({ day, ...entries[day] }))
+    } catch (error) {
+      throw new Error(`Failed to load belief journal: ${error.message}`)
+    }
+  },
+
   // Plaid Integration
   async createPlaidLinkToken() {
     try {

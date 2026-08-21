@@ -11,6 +11,25 @@
             <div v-if="groundedLine" class="text-body2 text-weight-medium q-mt-sm" style="color: #3BA99F;">
               {{ groundedLine }}
             </div>
+            <div v-if="beliefJournal.length" class="q-mt-sm">
+              <q-btn
+                flat dense no-caps size="sm" color="grey-7"
+                :icon="journalOpen ? 'expand_less' : 'menu_book'"
+                :label="journalOpen ? 'Hide journal' : 'Belief journal'"
+                @click="journalOpen = !journalOpen"
+              />
+              <q-slide-transition>
+                <div v-show="journalOpen" class="q-mt-xs">
+                  <div v-for="e in beliefJournal" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
+                    <div class="text-caption text-grey-6">{{ journalDate(e.day) }}</div>
+                    <div class="text-body2" style="color: #2c3e50;">
+                      “{{ e.mantra }}”<span v-if="e.personal && e.goal_title" class="text-grey-6"> — for {{ e.goal_title }}</span>
+                    </div>
+                    <div v-if="e.fact" class="text-caption" style="color: #3BA99F;">{{ e.fact }}</div>
+                  </div>
+                </div>
+              </q-slide-transition>
+            </div>
           </q-card-section>
         </q-card>
 
@@ -650,6 +669,22 @@ export default defineComponent({
       }
     }
 
+    // Day-by-day history of the banner: what you believed, and the number
+    // that backed it. Loaded lazily; hides itself when empty.
+    const beliefJournal = ref([])
+    const journalOpen = ref(false)
+    const loadBeliefJournal = async () => {
+      try {
+        beliefJournal.value = await firebaseApi.getBeliefJournal(14)
+      } catch (err) {
+        console.error('Error loading belief journal:', err)
+      }
+    }
+    const journalDate = (day) => {
+      const [y, m, d] = day.split('-').map(Number)
+      return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    }
+
     // Ground the daily mantra in real numbers: collect TRUE facts from the
     // forecast engine (met goal / kept streak / on-pace date / cap discipline /
     // the concrete lever) and rotate through them by day of year — the belief
@@ -694,6 +729,15 @@ export default defineComponent({
         const preferred = personalMantra.value ? lines.filter(l => l.id === personalMantra.value.goalId) : []
         const pool = preferred.length ? preferred : lines
         groundedLine.value = pool[dayOfYear % pool.length].text
+        // Journal today's belief + its evidence (fire-and-forget; a same-day
+        // rerun just refreshes the fact)
+        firebaseApi.saveBeliefEntry({
+          mantra: personalMantra.value ? personalMantra.value.text : quoteOfTheDay.value,
+          personal: !!personalMantra.value,
+          goalId: personalMantra.value ? personalMantra.value.goalId : null,
+          goalTitle: personalMantra.value ? personalMantra.value.goalTitle : null,
+          fact: groundedLine.value
+        }).then(loadBeliefJournal).catch(err => console.error('Error saving belief entry:', err))
       } catch (err) {
         // The grounded line is a bonus — never block or toast the vision board
         console.error('Error loading grounded mantra line:', err)
@@ -704,12 +748,16 @@ export default defineComponent({
       await Promise.all([loadGoals(), loadCategories(), loadAccounts()])
       loadSpending()
       loadGroundedLine()
+      loadBeliefJournal()
     })
 
     return {
       quoteOfTheDay,
       personalMantra,
       groundedLine,
+      beliefJournal,
+      journalOpen,
+      journalDate,
       goals,
       accounts,
       accountOptions,
