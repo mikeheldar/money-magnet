@@ -14,6 +14,25 @@
               <div class="text-body2 text-grey-7 q-mt-xs">Set your money intentions, track where you are, and see where you're going.</div>
             </template>
             <div v-if="groundedLine" class="text-body2 text-weight-medium q-mt-sm" style="color: #3BA99F;">{{ groundedLine }}</div>
+            <div v-if="beliefJournal.length" class="q-mt-sm">
+              <q-btn
+                flat dense no-caps size="sm" color="grey-7"
+                :icon="journalOpen ? 'expand_less' : 'menu_book'"
+                :label="journalOpen ? 'Hide journal' : 'Belief journal'"
+                @click="journalOpen = !journalOpen"
+              />
+              <q-slide-transition>
+                <div v-show="journalOpen" class="q-mt-xs">
+                  <div v-for="e in beliefJournal" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
+                    <div class="text-caption text-grey-6">{{ journalDate(e.day) }}</div>
+                    <div class="text-body2" style="color: #2c3e50;">
+                      “{{ e.mantra }}”<span v-if="e.personal && e.goal_title" class="text-grey-6"> — for {{ e.goal_title }}</span>
+                    </div>
+                    <div v-if="e.fact" class="text-caption" style="color: #3BA99F;">{{ e.fact }}</div>
+                  </div>
+                </div>
+              </q-slide-transition>
+            </div>
           </q-card-section>
         </q-card>
         <q-card style="border-radius: 12px;">
@@ -252,6 +271,8 @@ export default defineComponent({
     const flexSpend = ref([])
     const mantraBanner = ref(null)
     const groundedLine = ref('')
+    const beliefJournal = ref([])
+    const journalOpen = ref(false)
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -392,6 +413,32 @@ export default defineComponent({
       const preferred = mantraBanner.value ? lines.filter(l => l.id === mantraBanner.value.goalId) : []
       const pool = preferred.length ? preferred : lines
       groundedLine.value = pool[dayOfYear % pool.length].text
+      // Journal today's belief + its evidence (fire-and-forget; a same-day
+      // rerun just refreshes the fact). Only a personal mantra is journaled —
+      // the static tagline isn't a belief; stock-quote days journal from Goals.
+      if (mantraBanner.value) {
+        firebaseApi.saveBeliefEntry({
+          mantra: mantraBanner.value.text,
+          personal: true,
+          goalId: mantraBanner.value.goalId,
+          goalTitle: mantraBanner.value.goalTitle,
+          fact: groundedLine.value
+        }).then(loadBeliefJournal).catch(err => console.error('Error saving belief entry:', err))
+      }
+    }
+
+    // Day-by-day belief trail (written by the banner here and on Goals) —
+    // same 14-day view as the Goals page
+    const loadBeliefJournal = async () => {
+      try {
+        beliefJournal.value = await firebaseApi.getBeliefJournal(14)
+      } catch (err) {
+        console.error('Error loading belief journal:', err)
+      }
+    }
+    const journalDate = (day) => {
+      const [y, m, d] = day.split('-').map(Number)
+      return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     }
 
     const loadGoalPace = async () => {
@@ -564,6 +611,7 @@ export default defineComponent({
       await nextTick()
       await loadBalanceData()
       loadGoalPace()
+      loadBeliefJournal()
     })
 
     // Watch for period changes
@@ -586,6 +634,9 @@ export default defineComponent({
       spendLimitPace,
       mantraBanner,
       groundedLine,
+      beliefJournal,
+      journalOpen,
+      journalDate,
       formatCurrency,
       formatDay,
       coachLine,
