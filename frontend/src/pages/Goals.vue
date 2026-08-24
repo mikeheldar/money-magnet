@@ -18,6 +18,7 @@
                 :label="journalOpen ? 'Hide journal' : 'Belief journal'"
                 @click="journalOpen = !journalOpen"
               />
+              <span v-if="beliefRecap" class="text-caption text-grey-6 q-ml-sm">{{ beliefRecap }}</span>
               <q-slide-transition>
                 <div v-show="journalOpen" class="q-mt-xs">
                   <div v-for="e in beliefJournal" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
@@ -685,6 +686,21 @@ export default defineComponent({
       return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     }
 
+    // Weekly belief recap: how many of the last 7 days the journal holds a
+    // grounded fact — the numbers backing the words, counted, not claimed.
+    const beliefRecap = computed(() => {
+      const now = new Date()
+      const last7 = new Set()
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+        last7.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+      }
+      const n = beliefJournal.value.filter(e => e.fact && last7.has(e.day)).length
+      if (!n) return ''
+      return n === 7 ? 'Every day this week, your numbers backed your words'
+        : `Your numbers backed your words ${n} of the last 7 days`
+    })
+
     // Ground the daily mantra in real numbers: collect TRUE facts from the
     // forecast engine (met goal / kept streak / on-pace date / cap discipline /
     // the concrete lever) and rotate through them by day of year — the belief
@@ -758,6 +774,7 @@ export default defineComponent({
       beliefJournal,
       journalOpen,
       journalDate,
+      beliefRecap,
       goals,
       accounts,
       accountOptions,

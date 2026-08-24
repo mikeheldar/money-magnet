@@ -21,6 +21,7 @@
                 :label="journalOpen ? 'Hide journal' : 'Belief journal'"
                 @click="journalOpen = !journalOpen"
               />
+              <span v-if="beliefRecap" class="text-caption text-grey-6 q-ml-sm">{{ beliefRecap }}</span>
               <q-slide-transition>
                 <div v-show="journalOpen" class="q-mt-xs">
                   <div v-for="e in beliefJournal" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
@@ -231,7 +232,7 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, watch, nextTick } from 'vue'
+import { defineComponent, ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useQuasar } from 'quasar'
 import firebaseApi from '../services/firebase-api'
 import {
@@ -441,6 +442,21 @@ export default defineComponent({
       return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     }
 
+    // Weekly belief recap: how many of the last 7 days the journal holds a
+    // grounded fact — the numbers backing the words, counted, not claimed.
+    const beliefRecap = computed(() => {
+      const now = new Date()
+      const last7 = new Set()
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+        last7.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+      }
+      const n = beliefJournal.value.filter(e => e.fact && last7.has(e.day)).length
+      if (!n) return ''
+      return n === 7 ? 'Every day this week, your numbers backed your words'
+        : `Your numbers backed your words ${n} of the last 7 days`
+    })
+
     const loadGoalPace = async () => {
       try {
         // Goal crossings are computed over the full 5-year horizon regardless of
@@ -637,6 +653,7 @@ export default defineComponent({
       beliefJournal,
       journalOpen,
       journalDate,
+      beliefRecap,
       formatCurrency,
       formatDay,
       coachLine,
