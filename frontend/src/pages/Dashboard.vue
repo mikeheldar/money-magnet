@@ -24,13 +24,14 @@
               <span v-if="beliefRecap" class="text-caption text-grey-6 q-ml-sm">{{ beliefRecap }}</span>
               <q-slide-transition>
                 <div v-show="journalOpen" class="q-mt-xs">
-                  <div v-for="e in beliefJournal" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
+                  <div v-for="e in beliefJournal.slice(0, 14)" :key="e.day" class="q-py-xs" style="border-top: 1px solid #eee;">
                     <div class="text-caption text-grey-6">{{ journalDate(e.day) }}</div>
                     <div class="text-body2" style="color: #2c3e50;">
                       “{{ e.mantra }}”<span v-if="e.personal && e.goal_title" class="text-grey-6"> — for {{ e.goal_title }}</span>
                     </div>
                     <div v-if="e.fact" class="text-caption" style="color: #3BA99F;">{{ e.fact }}</div>
                   </div>
+                  <div v-if="beliefAllTime" class="text-caption text-grey-6 q-pt-xs" style="border-top: 1px solid #eee;">{{ beliefAllTime }}</div>
                 </div>
               </q-slide-transition>
             </div>
@@ -429,10 +430,10 @@ export default defineComponent({
     }
 
     // Day-by-day belief trail (written by the banner here and on Goals) —
-    // same 14-day view as the Goals page
+    // full trail in one getDoc; the list shows 14, the stats use it all
     const loadBeliefJournal = async () => {
       try {
-        beliefJournal.value = await firebaseApi.getBeliefJournal(14)
+        beliefJournal.value = await firebaseApi.getBeliefJournal(3650)
       } catch (err) {
         console.error('Error loading belief journal:', err)
       }
@@ -455,6 +456,23 @@ export default defineComponent({
       if (!n) return ''
       return n === 7 ? 'Every day this week, your numbers backed your words'
         : `Your numbers backed your words ${n} of the last 7 days`
+    })
+
+    // All-time belief consistency: the weekly recap's long-run counterpart —
+    // days the journal holds a grounded fact since the first entry. Hidden
+    // until the trail outgrows the recap's 7-day window.
+    const beliefAllTime = computed(() => {
+      const entries = beliefJournal.value
+      if (!entries.length) return ''
+      const firstDay = entries[entries.length - 1].day // list is newest-first
+      const [y, m, d] = firstDay.split('-').map(Number)
+      const start = new Date(y, m - 1, d)
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const span = Math.round((today - start) / 864e5) + 1
+      if (span <= 7) return ''
+      const backed = entries.filter(e => e.fact).length
+      return `Since ${journalDate(firstDay)}: your numbers backed your words ${backed} of ${span} days`
     })
 
     const loadGoalPace = async () => {
@@ -654,6 +672,7 @@ export default defineComponent({
       journalOpen,
       journalDate,
       beliefRecap,
+      beliefAllTime,
       formatCurrency,
       formatDay,
       coachLine,
