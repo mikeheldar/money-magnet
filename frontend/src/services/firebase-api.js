@@ -9,6 +9,7 @@ import {
   deleteDoc,
   query,
   where,
+  limit,
   orderBy,
   Timestamp,
   serverTimestamp,
@@ -1776,6 +1777,31 @@ export default {
   },
 
   // Goals (vision board)
+  // First-run setup signals for the Dashboard checklist: two cheap reads --
+  // a limit(1) probe on transactions plus the (small) goals list, which also
+  // answers whether any goal carries a target and a personal mantra
+  async getSetupStatus() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const txnSnap = await getDocs(query(
+        collection(db, 'transactions'),
+        where('user_id', '==', userId),
+        limit(1)
+      ))
+      const goals = await this.getGoals()
+      return {
+        hasTransactions: !txnSnap.empty,
+        hasGoal: goals.some(g => (g.goal_type || 'save_up') !== 'spend_limit' && Number(g.target_amount) > 0),
+        hasMantra: goals.some(g => g.mantra && String(g.mantra).trim())
+      }
+    } catch (error) {
+      const errorMsg = handleFirestoreError(error, 'getSetupStatus')
+      throw new Error(`Failed to fetch setup status: ${errorMsg}`)
+    }
+  },
+
   async getGoals() {
     try {
       const userId = auth.currentUser?.uid

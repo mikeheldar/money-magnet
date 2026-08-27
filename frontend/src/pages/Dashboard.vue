@@ -37,6 +37,21 @@
             </div>
           </q-card-section>
         </q-card>
+        <!-- First-run path: money data -> a save-up goal -> your mantra; hidden
+             once transactions + a goal exist and the roadmap can draw itself -->
+        <q-card v-if="setupSteps" flat bordered class="q-mb-md" style="border-radius: 12px; border-left: 4px solid #3BA99F;">
+          <q-card-section class="q-py-sm">
+            <div class="text-subtitle1" style="color: #3BA99F; font-weight: 600;">Get set up</div>
+            <div class="text-caption text-grey-7 q-mb-xs">Three steps and your forecast becomes a roadmap — one line from where you've been to your goal, with the date you cross it.</div>
+            <div v-for="s in setupSteps" :key="s.key" class="row items-center no-wrap q-mt-xs">
+              <q-icon :name="s.done ? 'check_circle' : 'radio_button_unchecked'" :color="s.done ? 'green' : 'grey-5'" size="18px" class="q-mr-sm" />
+              <span class="text-body2" :class="s.done ? 'text-grey-5' : ''" :style="s.done ? 'text-decoration: line-through;' : ''">{{ s.label }}</span>
+              <template v-if="!s.done">
+                <q-btn v-for="c in s.ctas" :key="c.to" flat dense no-caps size="sm" color="primary" :label="c.label" :to="c.to" class="q-ml-sm" />
+              </template>
+            </div>
+          </q-card-section>
+        </q-card>
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Financial Dashboard</div>
@@ -275,6 +290,7 @@ export default defineComponent({
     const groundedLine = ref('')
     const beliefJournal = ref([])
     const journalOpen = ref(false)
+    const setupStatus = ref(null)
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -475,6 +491,44 @@ export default defineComponent({
       return `Since ${journalDate(firstDay)}: your numbers backed your words ${backed} of ${span} days`
     })
 
+    // First-run guided path (the wedge, in order): money data -> a save-up goal
+    // -> your own mantra. Without it a new user lands on an empty chart with no
+    // route to the forecast. Hidden once the two essentials exist; the mantra
+    // row is the hook, not a gate.
+    const setupSteps = computed(() => {
+      const s = setupStatus.value
+      if (!s || (s.hasTransactions && s.hasGoal)) return null
+      return [
+        {
+          key: 'data',
+          done: s.hasTransactions,
+          label: 'Add your money — connect your bank or import a CSV',
+          ctas: [{ label: 'Connect bank', to: '/accounts' }, { label: 'Import CSV', to: '/transactions' }]
+        },
+        {
+          key: 'goal',
+          done: s.hasGoal,
+          label: 'Create a save-up goal — a target amount and a date',
+          ctas: [{ label: 'Goals', to: '/goals' }]
+        },
+        {
+          key: 'mantra',
+          done: s.hasMantra,
+          label: 'Write your own mantra on the goal — the belief your numbers will back',
+          ctas: [{ label: 'Goals', to: '/goals' }]
+        }
+      ]
+    })
+
+    const loadSetupStatus = async () => {
+      try {
+        setupStatus.value = await firebaseApi.getSetupStatus()
+      } catch (err) {
+        // Optional guidance -- hide rather than toast
+        console.error('Error loading setup status:', err)
+      }
+    }
+
     const loadGoalPace = async () => {
       try {
         // Goal crossings are computed over the full 5-year horizon regardless of
@@ -646,6 +700,7 @@ export default defineComponent({
       await loadBalanceData()
       loadGoalPace()
       loadBeliefJournal()
+      loadSetupStatus()
     })
 
     // Watch for period changes
@@ -673,6 +728,7 @@ export default defineComponent({
       journalDate,
       beliefRecap,
       beliefAllTime,
+      setupSteps,
       formatCurrency,
       formatDay,
       coachLine,
