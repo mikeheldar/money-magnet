@@ -56,7 +56,7 @@
               <q-icon name="emoji_events" size="64px" class="q-mb-md" />
               <div class="text-h6 q-mb-sm">No goals yet</div>
               <div class="text-body2 q-mb-md">Add a money goal to build your vision board.</div>
-              <q-btn color="primary" label="Add your first goal" icon="add" @click="openAddDialog" />
+              <q-btn color="primary" label="Add your first goal" icon="add" @click="openGuidedDialog" />
             </div>
 
             <div v-else class="row q-col-gutter-md">
@@ -162,6 +162,64 @@
     </div>
 
     <!-- Add / Edit goal dialog -->
+    <!-- Guided first-goal flow: the Get-set-up on-ramp — target + date + mantra
+         in one conversational pass, nothing else in the way -->
+    <q-dialog v-model="guidedOpen" persistent>
+      <q-card style="min-width: 400px; max-width: 90vw;">
+        <q-card-section>
+          <div class="text-h6">Your first goal</div>
+          <div class="text-caption text-grey-7 q-mt-xs">
+            Three questions, and your forecast becomes a roadmap — one line from where you've been to your goal, with the date you cross it.
+          </div>
+        </q-card-section>
+        <q-card-section class="q-pt-none">
+          <q-input
+            v-model="guidedForm.title"
+            label="What are you saving for? *"
+            placeholder="Emergency fund, a trip, a house deposit…"
+            outlined
+            dense
+            autofocus
+            class="q-mb-md"
+          />
+          <q-input
+            v-model.number="guidedForm.target_amount"
+            label="How much do you need? *"
+            type="number"
+            prefix="$"
+            outlined
+            dense
+            min="0"
+            class="q-mb-md"
+          />
+          <q-input
+            v-model="guidedForm.target_date"
+            label="By when? (optional)"
+            type="date"
+            outlined
+            dense
+            clearable
+            class="q-mb-md"
+            hint="With a date, the forecast can tell you if you're on pace — or what it takes to get there"
+          />
+          <q-input
+            v-model="guidedForm.mantra"
+            label="Your mantra (optional)"
+            placeholder="I am building my safety net, one month at a time"
+            outlined
+            dense
+            hint="Your belief, in your own words — it headlines your daily banner, backed by your real numbers"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat no-caps label="More options" color="grey-7" @click="switchToFullDialog" />
+          <q-space />
+          <q-btn flat label="Not now" v-close-popup />
+          <q-btn color="primary" label="Create my goal" :loading="guidedSaving" @click="saveGuidedGoal" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
     <q-dialog v-model="dialogOpen" persistent>
       <q-card style="min-width: 400px; max-width: 90vw;">
         <q-card-section>
@@ -329,6 +387,7 @@
 <script>
 import { defineComponent, ref, computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
+import { useRoute, useRouter } from 'vue-router'
 import firebaseApi from '../services/firebase-api'
 import { getQuoteOfTheDay } from '../utils/goals-quotes'
 
@@ -336,6 +395,8 @@ export default defineComponent({
   name: 'GoalsPage',
   setup() {
     const $q = useQuasar()
+    const route = useRoute()
+    const router = useRouter()
     const loading = ref(true)
     const saving = ref(false)
     const deleting = ref(false)
@@ -571,6 +632,60 @@ export default defineComponent({
       dialogOpen.value = true
     }
 
+    // Guided first-goal flow — always creates a pinned save-up goal (the wedge
+    // needs a target to draw the crossing date; everything else can wait)
+    const guidedOpen = ref(false)
+    const guidedSaving = ref(false)
+    const guidedForm = ref({ title: '', target_amount: null, target_date: null, mantra: '' })
+
+    const openGuidedDialog = () => {
+      guidedForm.value = { title: '', target_amount: null, target_date: null, mantra: '' }
+      guidedOpen.value = true
+    }
+
+    const switchToFullDialog = () => {
+      guidedOpen.value = false
+      openAddDialog()
+    }
+
+    const saveGuidedGoal = async () => {
+      if (!guidedForm.value.title?.trim() || !(guidedForm.value.target_amount > 0)) {
+        $q.notify({ type: 'warning', message: 'Give your goal a name and a target amount' })
+        return
+      }
+      guidedSaving.value = true
+      try {
+        await firebaseApi.createGoal({
+          title: guidedForm.value.title.trim(),
+          description: null,
+          mantra: (guidedForm.value.mantra || '').trim() || null,
+          links: [],
+          target_date: guidedForm.value.target_date || null,
+          target_start_date: null,
+          target_end_date: null,
+          target_amount: Number(guidedForm.value.target_amount),
+          current_amount: null,
+          linked_account_id: null,
+          goal_type: 'save',
+          category_id: null,
+          pinned: true
+        })
+        guidedOpen.value = false
+        $q.notify({
+          type: 'positive',
+          message: 'Goal created — your roadmap has a destination',
+          actions: [{ label: 'See your roadmap', color: 'white', handler: () => router.push('/forecast') }]
+        })
+        await loadGoals()
+        await loadSpending()
+        loadGroundedLine()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to create goal' })
+      } finally {
+        guidedSaving.value = false
+      }
+    }
+
     const openEditDialog = (goal) => {
       editingGoal.value = goal
       form.value = {
@@ -783,6 +898,10 @@ export default defineComponent({
       loadSpending()
       loadGroundedLine()
       loadBeliefJournal()
+      // Deep-link from the Get-set-up checklist; same essential-missing test as
+      // getSetupStatus so the guided dialog never nags past its purpose
+      const hasSaveUpGoal = goals.value.some(g => (g.goal_type || 'save') !== 'spend_limit' && Number(g.target_amount) > 0)
+      if (route.query.guided && !hasSaveUpGoal) openGuidedDialog()
     })
 
     return {
@@ -818,6 +937,12 @@ export default defineComponent({
       editingGoal,
       form,
       openAddDialog,
+      guidedOpen,
+      guidedSaving,
+      guidedForm,
+      openGuidedDialog,
+      switchToFullDialog,
+      saveGuidedGoal,
       openEditDialog,
       saveGoal,
       togglePin,

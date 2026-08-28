@@ -509,7 +509,7 @@ export default defineComponent({
           key: 'goal',
           done: s.hasGoal,
           label: 'Create a save-up goal — a target amount and a date',
-          ctas: [{ label: 'Goals', to: '/goals' }]
+          ctas: [{ label: 'Goals', to: '/goals?guided=1' }]
         },
         {
           key: 'mantra',
