@@ -202,6 +202,11 @@
             class="q-mb-md"
             hint="With a date, the forecast can tell you if you're on pace — or what it takes to get there"
           />
+          <div v-if="guidedSuggestion" class="text-caption q-mb-md" style="color: #3BA99F;">
+            <template v-if="guidedSuggestion.alreadyMet">You already have this much across your accounts — this goal could be funded today.</template>
+            <template v-else-if="guidedSuggestion.date">At your current pace you'd cross ${{ formatCurrency(Number(guidedForm.target_amount)) }} around <b>{{ guidedSuggestion.label }}</b> — penciled in for you. Want it sooner? Pick an earlier date and the coach shows the monthly step.</template>
+            <template v-else>Your current pace doesn't reach this within 5 years — pick a date anyway and the coach will show the monthly step to get there.</template>
+          </div>
           <q-input
             v-model="guidedForm.mantra"
             label="Your mantra (optional)"
@@ -385,7 +390,7 @@
 </template>
 
 <script>
-import { defineComponent, ref, computed, onMounted } from 'vue'
+import { defineComponent, ref, computed, onMounted, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useRoute, useRouter } from 'vue-router'
 import firebaseApi from '../services/firebase-api'
@@ -640,8 +645,62 @@ export default defineComponent({
 
     const openGuidedDialog = () => {
       guidedForm.value = { title: '', target_amount: null, target_date: null, mantra: '' }
+      guidedAutofilled = null
       guidedOpen.value = true
+      loadGuidedPace()
     }
+
+    // Suggested "by when": walk the forecast's total-balance trajectory to the
+    // first day it clears the typed amount, so the pre-filled date is the SAME
+    // date the roadmap draws once the goal exists - never a separate guess
+    const guidedPace = ref(null)
+    let guidedPaceRequested = false
+    const loadGuidedPace = async () => {
+      if (guidedPaceRequested) return
+      guidedPaceRequested = true
+      try {
+        const today = new Date()
+        const startDate = new Date(today.getTime() - 7 * 864e5).toISOString().split('T')[0]
+        const endDate = new Date(today.getTime() + 7 * 864e5).toISOString().split('T')[0]
+        const data = await firebaseApi.getForecastSeries({ startDate, endDate, grain: 'weekly' })
+        guidedPace.value = data?.totalProjection?.daily?.length ? data.totalProjection : null
+      } catch (e) {
+        guidedPace.value = null
+      }
+    }
+
+    const guidedSuggestion = computed(() => {
+      const target = Number(guidedForm.value.target_amount)
+      const proj = guidedPace.value
+      if (!(target > 0) || !proj) return null
+      if (proj.daily[0] >= target) return { alreadyMet: true }
+      for (let i = 1; i < proj.daily.length; i++) {
+        if (proj.daily[i] >= target) {
+          const [y, m, d] = proj.start.split('-').map(Number)
+          const dt = new Date(y, m - 1, d + i)
+          const pad = n => String(n).padStart(2, '0')
+          return {
+            date: `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`,
+            label: dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          }
+        }
+      }
+      return { beyondHorizon: true }
+    })
+
+    // Pre-fill only while the user hasn't set their own date - an autofilled
+    // value is ours to replace as the amount changes, a typed one never is
+    let guidedAutofilled = null
+    watch(guidedSuggestion, (s) => {
+      const cur = guidedForm.value.target_date
+      if (s?.date && (!cur || cur === guidedAutofilled)) {
+        guidedForm.value.target_date = s.date
+        guidedAutofilled = s.date
+      } else if (!s?.date && cur && cur === guidedAutofilled) {
+        guidedForm.value.target_date = null
+        guidedAutofilled = null
+      }
+    })
 
     const switchToFullDialog = () => {
       guidedOpen.value = false
@@ -940,6 +999,7 @@ export default defineComponent({
       guidedOpen,
       guidedSaving,
       guidedForm,
+      guidedSuggestion,
       openGuidedDialog,
       switchToFullDialog,
       saveGuidedGoal,

@@ -1643,6 +1643,13 @@ export default {
         series,
         totalValues,
         bucketDates: buckets.map(b => b.dateStr),
+        // Total-balance future trajectory (today -> horizon), so a not-yet-created
+        // goal (guided first-goal flow) can be given the SAME crossing date the
+        // roadmap will draw once it exists - a suggestion the forecast then honors
+        totalProjection: {
+          start: dayStrs[todayIdx],
+          daily: dailyTotals.slice(todayIdx).map(v => Math.round(v * 100) / 100)
+        },
         goals,
         spendLimits,
         meta: {
