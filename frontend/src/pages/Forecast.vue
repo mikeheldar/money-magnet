@@ -7,7 +7,24 @@
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Balance Forecast</div>
             <p class="text-body2 text-grey-7 q-mb-md">Your money's road: real balances in the past, and ahead each recurring bill and paycheck lands on its scheduled date while day-to-day spend flows at your recent baseline. "Now" is at the center.</p>
 
-            <div v-if="summaryCards" class="row q-col-gutter-md q-mb-md">
+            <!-- First-run empty states — same essentials test as the Dashboard
+                 Get-set-up checklist, so the wedge page never dead-ends a new user -->
+            <q-card v-if="setupNeeded === 'data'" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
+              <q-card-section>
+                <div class="text-subtitle1" style="color: #3BA99F; font-weight: 600;">Your roadmap starts here</div>
+                <div class="text-body2 text-grey-8 q-mb-sm">Add your money data and this page becomes a roadmap &mdash; one line from where you've been to your goal, with the date you cross it.</div>
+                <q-btn no-caps color="primary" label="Connect bank" to="/accounts" class="q-mr-sm" />
+                <q-btn no-caps outline color="primary" label="Import CSV" to="/transactions" />
+              </q-card-section>
+            </q-card>
+            <q-card v-else-if="setupNeeded === 'goal'" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
+              <q-card-section class="q-py-sm">
+                <div class="text-body2 text-grey-8 q-mb-xs"><b>Your forecast is drawn.</b> Add a save-up goal to turn it into a roadmap &mdash; you'll get the date you cross it.</div>
+                <q-btn no-caps dense color="primary" label="Create your first goal" to="/goals?guided=1" />
+              </q-card-section>
+            </q-card>
+
+            <div v-if="summaryCards && setupNeeded !== 'data'" class="row q-col-gutter-md q-mb-md">
               <div class="col-12 col-md-4">
                 <q-card flat bordered class="bg-grey-1">
                   <q-card-section class="q-py-sm">
@@ -36,7 +53,7 @@
               </div>
             </div>
 
-            <div v-if="goalOptions.length" class="q-mb-md">
+            <div v-if="goalOptions.length && setupNeeded !== 'data'" class="q-mb-md">
               <q-card flat bordered :class="goalCardClass">
                 <q-card-section class="q-py-sm">
                   <div class="row items-center q-col-gutter-md">
@@ -167,7 +184,7 @@
 
             <!-- Spending caps — same engine payload the Dashboard pace panel renders,
                  so the two pages always agree on cap adherence -->
-            <div v-if="spendLimitCards.length" class="q-mb-md">
+            <div v-if="spendLimitCards.length && setupNeeded !== 'data'" class="q-mb-md">
               <div class="text-subtitle2 q-mb-xs" style="color: #3BA99F; font-weight: 600;">Spending caps</div>
               <div class="row q-col-gutter-md">
                 <div v-for="s in spendLimitCards" :key="s.id" class="col-12 col-md-4">
@@ -201,7 +218,7 @@
               </div>
             </div>
 
-            <div class="q-mb-md">
+            <div v-if="setupNeeded !== 'data'" class="q-mb-md">
               <span class="text-subtitle2 q-mr-sm">Range:</span>
               <q-btn-toggle
                 v-model="rangePreset"
@@ -217,7 +234,7 @@
               />
             </div>
 
-            <div v-if="forecastData && forecastData.series.length" class="q-mb-md">
+            <div v-if="forecastData && forecastData.series.length && setupNeeded !== 'data'" class="q-mb-md">
               <div class="text-subtitle2 q-mb-sm">Accounts to show</div>
               <div class="row q-col-gutter-sm">
                 <q-checkbox
@@ -239,7 +256,7 @@
               <q-spinner-dots color="primary" size="40px" />
             </div>
 
-            <div v-else-if="forecastData" style="position: relative; height: 400px;">
+            <div v-else-if="forecastData && setupNeeded !== 'data'" style="position: relative; height: 400px;">
               <canvas ref="forecastChart"></canvas>
             </div>
 
@@ -316,6 +333,7 @@ export default defineComponent({
     const selectedGoalId = ref(null)
     const flexSpend = ref([])
     const committing = ref(null)
+    const setupStatus = ref(null)
     let chartInstance = null
 
     const formatCurrency = (value) => {
@@ -508,6 +526,17 @@ export default defineComponent({
         grain
       }
     }
+
+    // Same essentials test as the Dashboard Get-set-up checklist: no
+    // transactions -> the chart can't draw a real road (swap in the on-ramp);
+    // data but no save-up goal -> the forecast has no destination yet
+    const setupNeeded = computed(() => {
+      const s = setupStatus.value
+      if (!s) return null
+      if (!s.hasTransactions) return 'data'
+      if (!s.hasGoal) return 'goal'
+      return null
+    })
 
     const loadForecastSeries = async () => {
       loading.value = true
@@ -750,6 +779,9 @@ export default defineComponent({
 
     onMounted(() => {
       loadForecastSeries()
+      firebaseApi.getSetupStatus()
+        .then(s => { setupStatus.value = s })
+        .catch(err => console.error('Error loading setup status:', err))
     })
 
     const selectAllAccounts = () => {
@@ -797,6 +829,7 @@ export default defineComponent({
       selectedGoal,
       goalCardClass,
       spendLimitCards,
+      setupNeeded,
       limitCardClass,
       limitRemainingLabel,
       coachLine,
