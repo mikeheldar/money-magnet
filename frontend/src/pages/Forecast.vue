@@ -162,7 +162,7 @@
                               <q-tooltip>Week of {{ formatDay(w.start) }}: ${{ formatCurrency(w.spent) }} of ${{ formatCurrency(w.allowance) }}</q-tooltip>
                             </q-icon>
                             <span v-if="selectedGoal.commitmentStatus.keptStreak >= 2" class="text-green-8" style="font-weight: 600;">
-                              {{ selectedGoal.commitmentStatus.keptStreak }}-week streak &mdash; keep it going
+                              {{ selectedGoal.commitmentStatus.keptStreak }}-week streak &mdash; keep it going<template v-if="beliefRecapInline"> · <span style="color: #3BA99F;">{{ beliefRecapInline }}</span></template>
                             </span>
                             <span v-else-if="selectedGoal.commitmentStatus.brokenStreak >= 2" class="text-orange-9" style="font-weight: 600;">
                               Over pace {{ selectedGoal.commitmentStatus.brokenStreak }} weeks running &mdash; tighten {{ selectedGoal.commitment.category_name }} or adjust the plan
@@ -334,7 +334,42 @@ export default defineComponent({
     const flexSpend = ref([])
     const committing = ref(null)
     const setupStatus = ref(null)
+    const beliefJournal = ref([])
     let chartInstance = null
+
+    // Day-by-day belief trail (written by the banners on Dashboard/Goals) —
+    // one getDoc, read here only to weave the weekly recap into the
+    // committed-goal streak line. This page never writes it.
+    const loadBeliefJournal = async () => {
+      try {
+        beliefJournal.value = await firebaseApi.getBeliefJournal(3650)
+      } catch (err) {
+        console.error('Error loading belief journal:', err)
+      }
+    }
+
+    // Weekly belief recap: how many of the last 7 days the journal holds a
+    // grounded fact — the numbers backing the words, counted, not claimed.
+    const beliefRecap = computed(() => {
+      const now = new Date()
+      const last7 = new Set()
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+        last7.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+      }
+      const n = beliefJournal.value.filter(e => e.fact && last7.has(e.day)).length
+      if (!n) return ''
+      return n === 7 ? 'Every day this week, your numbers backed your words'
+        : `Your numbers backed your words ${n} of the last 7 days`
+    })
+
+    // The recap said mid-sentence (lowercased) so the committed-goal streak
+    // line can weave it in: the discipline streak and the belief trail are
+    // one story, told in one breath.
+    const beliefRecapInline = computed(() => {
+      const r = beliefRecap.value
+      return r ? r.charAt(0).toLowerCase() + r.slice(1) : ''
+    })
 
     const formatCurrency = (value) => {
       return Number(value || 0).toLocaleString('en-US', {
@@ -782,6 +817,7 @@ export default defineComponent({
       firebaseApi.getSetupStatus()
         .then(s => { setupStatus.value = s })
         .catch(err => console.error('Error loading setup status:', err))
+      loadBeliefJournal()
     })
 
     const selectAllAccounts = () => {
@@ -830,6 +866,7 @@ export default defineComponent({
       goalCardClass,
       spendLimitCards,
       setupNeeded,
+      beliefRecapInline,
       limitCardClass,
       limitRemainingLabel,
       coachLine,

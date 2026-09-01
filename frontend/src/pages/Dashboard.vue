@@ -171,7 +171,7 @@
                             <q-tooltip>Week of {{ formatDay(w.start) }}: ${{ formatCurrency(w.spent) }} of ${{ formatCurrency(w.allowance) }}</q-tooltip>
                           </q-icon>
                           <span v-if="g.commitmentStatus.keptStreak >= 2" class="text-green-8" style="font-weight: 600;">
-                            {{ g.commitmentStatus.keptStreak }}-week streak — keep it going
+                            {{ g.commitmentStatus.keptStreak }}-week streak — keep it going<template v-if="beliefRecapInline"> · <span style="color: #3BA99F;">{{ beliefRecapInline }}</span></template>
                           </span>
                           <span v-else-if="g.commitmentStatus.brokenStreak >= 2" class="text-orange-9" style="font-weight: 600;">
                             Over pace {{ g.commitmentStatus.brokenStreak }} weeks running — tighten {{ g.commitment.category_name }} or adjust the plan
@@ -474,6 +474,14 @@ export default defineComponent({
         : `Your numbers backed your words ${n} of the last 7 days`
     })
 
+    // The recap said mid-sentence (lowercased) so the committed-goal streak
+    // line can weave it in: the discipline streak and the belief trail are
+    // one story, told in one breath.
+    const beliefRecapInline = computed(() => {
+      const r = beliefRecap.value
+      return r ? r.charAt(0).toLowerCase() + r.slice(1) : ''
+    })
+
     // All-time belief consistency: the weekly recap's long-run counterpart —
     // days the journal holds a grounded fact since the first entry. Hidden
     // until the trail outgrows the recap's 7-day window.
@@ -727,6 +735,7 @@ export default defineComponent({
       journalOpen,
       journalDate,
       beliefRecap,
+      beliefRecapInline,
       beliefAllTime,
       setupSteps,
       formatCurrency,
