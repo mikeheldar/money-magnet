@@ -215,6 +215,16 @@
             dense
             hint="Your belief, in your own words — it headlines your daily banner, backed by your real numbers"
           />
+          <div v-if="guidedMantraExamples.length" class="q-mt-sm">
+            <div class="text-caption text-grey-6">Need a starting point? Tap one and make it yours:</div>
+            <div
+              v-for="ex in guidedMantraExamples"
+              :key="ex"
+              class="text-caption cursor-pointer q-py-xs"
+              style="color: #3BA99F;"
+              @click="guidedForm.mantra = ex"
+            >“{{ ex }}”</div>
+          </div>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat no-caps label="More options" color="grey-7" @click="switchToFullDialog" />
@@ -256,6 +266,16 @@
             class="q-mb-md"
             hint="Your belief for this goal, in your own words — it headlines the daily banner, grounded with your real numbers"
           />
+          <div v-if="formMantraExamples.length" class="q-mb-md">
+            <div class="text-caption text-grey-6">Need a starting point? Tap one and make it yours:</div>
+            <div
+              v-for="ex in formMantraExamples"
+              :key="ex"
+              class="text-caption cursor-pointer q-py-xs"
+              style="color: #3BA99F;"
+              @click="form.mantra = ex"
+            >“{{ ex }}”</div>
+          </div>
           <q-btn-toggle
             v-model="form.goal_type"
             spread
@@ -643,6 +663,54 @@ export default defineComponent({
     const guidedSaving = ref(false)
     const guidedForm = ref({ title: '', target_amount: null, target_date: null, mantra: '' })
 
+    // Tap-to-use starter mantras: keyword-matched to the typed goal title so
+    // the examples read like THIS goal, rotated daily. The mantra powers the
+    // whole belief ladder (banner -> journal -> recap) - a blank box at the
+    // moment of commitment is the costliest place to lose someone.
+    const MANTRA_BANK = [
+      { match: /emergen|safety|rainy|cushion|buffer/i, examples: [
+        'I am building my safety net, one month at a time',
+        "I'm buying myself calm - one deposit at a time",
+        "Storms come - I'll be ready"
+      ] },
+      { match: /trip|travel|vacation|holiday|honeymoon/i, examples: [
+        'Every deposit buys a mile of that trip',
+        "The trip is already happening - I'm just funding it",
+        "I'd rather have the memories - I'm saving for them on purpose"
+      ] },
+      { match: /house|home|deposit|down.?payment|apartment|condo/i, examples: [
+        "Every month I'm laying another brick of my own front door",
+        "I'm not paying rent forever - I'm proving it monthly",
+        "My keys, my door - I'm earning them now"
+      ] },
+      { match: /car|truck|vehicle|motorcycle/i, examples: [
+        "I'm driving it off the lot with money I already saved",
+        'Every deposit is a mile closer to my own set of keys',
+        'No payments, no interest - just my car'
+      ] },
+      { match: /debt|loan|pay.?off|credit/i, examples: [
+        'Every payment buys back a piece of my freedom',
+        "I owe less every month - that's the whole plan",
+        "I'm not behind - I'm on my way out"
+      ] }
+    ]
+    const GENERIC_MANTRAS = [
+      'I am building the life I want, one month at a time',
+      "Every dollar I keep is a promise I'm keeping to myself",
+      "I don't have to be perfect - I have to keep going",
+      'Future me is counting on the choices I make today'
+    ]
+    const mantraExamplesFor = (title) => {
+      const bank = MANTRA_BANK.find(b => b.match.test(title || ''))
+      const pool = bank ? bank.examples : GENERIC_MANTRAS
+      const day = Math.floor(Date.now() / 86400000)
+      return [0, 1, 2].map(i => pool[(day + i) % pool.length])
+    }
+    const guidedMantraExamples = computed(() =>
+      (guidedForm.value.mantra || '').trim() ? [] : mantraExamplesFor(guidedForm.value.title))
+    const formMantraExamples = computed(() =>
+      (form.value.mantra || '').trim() ? [] : mantraExamplesFor(form.value.title))
+
     const openGuidedDialog = () => {
       guidedForm.value = { title: '', target_amount: null, target_date: null, mantra: '' }
       guidedAutofilled = null
@@ -1000,6 +1068,8 @@ export default defineComponent({
       guidedSaving,
       guidedForm,
       guidedSuggestion,
+      guidedMantraExamples,
+      formMantraExamples,
       openGuidedDialog,
       switchToFullDialog,
       saveGuidedGoal,
