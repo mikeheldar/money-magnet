@@ -395,6 +395,7 @@ export default defineComponent({
     const loadSuggestions = async () => {
       try {
         suggestions.value = await firebaseApi.detectRecurringCandidates()
+        firebaseApi.setRecurringSuggestCount(suggestions.value.length)
         console.log('\u2705 [Recurring] Suggestions found:', suggestions.value.length)
       } catch (err) {
         console.error('\u274c [Recurring] Suggestion scan failed:', err)
@@ -407,6 +408,7 @@ export default defineComponent({
       try {
         await firebaseApi.confirmRecurringCandidate(s.txnIds, s.frequency)
         suggestions.value = suggestions.value.filter(x => x.key !== s.key)
+        firebaseApi.setRecurringSuggestCount(suggestions.value.length)
         $q.notify({
           type: 'positive',
           message: `${s.name} marked ${s.frequency} \u2014 Forecast will use its real dates`
@@ -422,6 +424,7 @@ export default defineComponent({
 
     const dismissSuggestion = async (s) => {
       suggestions.value = suggestions.value.filter(x => x.key !== s.key)
+      firebaseApi.setRecurringSuggestCount(suggestions.value.length)
       try {
         await firebaseApi.dismissRecurringCandidate(s.key)
       } catch (err) {

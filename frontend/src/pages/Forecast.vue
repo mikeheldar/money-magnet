@@ -24,6 +24,15 @@
               </q-card-section>
             </q-card>
 
+            <!-- Same nudge as the Dashboard (two-surfaces-in-lockstep): unconfirmed
+                 repeating bills are exactly what blurs this page's dates -->
+            <q-card v-if="recurringSuggestCount && setupNeeded !== 'data'" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
+              <q-card-section class="q-py-sm">
+                <div class="text-body2 text-grey-8 q-mb-xs"><b>{{ recurringSuggestCount }} repeating {{ recurringSuggestCount === 1 ? 'bill or paycheck' : 'bills and paychecks' }} spotted</b> in your transactions. Confirm them and your forecast lands each one on its real date instead of an average.</div>
+                <q-btn no-caps dense color="primary" label="Review suggestions" to="/recurring" />
+              </q-card-section>
+            </q-card>
+
             <div v-if="summaryCards && setupNeeded !== 'data'" class="row q-col-gutter-md q-mb-md">
               <div class="col-12 col-md-4">
                 <q-card flat bordered class="bg-grey-1">
@@ -565,6 +574,16 @@ export default defineComponent({
     // Same essentials test as the Dashboard Get-set-up checklist: no
     // transactions -> the chart can't draw a real road (swap in the on-ramp);
     // data but no save-up goal -> the forecast has no destination yet
+    const recurringSuggestCount = ref(0)
+    const loadRecurringSuggest = async () => {
+      try {
+        recurringSuggestCount.value = await firebaseApi.getRecurringSuggestCount()
+      } catch (err) {
+        console.error('Error loading recurring suggestions:', err)
+        recurringSuggestCount.value = 0
+      }
+    }
+
     const setupNeeded = computed(() => {
       const s = setupStatus.value
       if (!s) return null
@@ -818,6 +837,7 @@ export default defineComponent({
         .then(s => { setupStatus.value = s })
         .catch(err => console.error('Error loading setup status:', err))
       loadBeliefJournal()
+      loadRecurringSuggest()
     })
 
     const selectAllAccounts = () => {
@@ -866,6 +886,7 @@ export default defineComponent({
       goalCardClass,
       spendLimitCards,
       setupNeeded,
+      recurringSuggestCount,
       beliefRecapInline,
       limitCardClass,
       limitRemainingLabel,

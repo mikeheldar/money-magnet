@@ -2039,6 +2039,21 @@ export default {
     }
   },
 
+  // Session-cached pending-suggestion count for the Dashboard/Forecast nudge:
+  // one real 25-month scan per tab session, and the Recurring page rewrites the
+  // cache on every load/confirm/dismiss so the nudge never overstates what's left
+  async getRecurringSuggestCount() {
+    const cached = sessionStorage.getItem('mm_recurring_suggest_count')
+    if (cached !== null) return parseInt(cached, 10) || 0
+    const count = (await this.detectRecurringCandidates()).length
+    sessionStorage.setItem('mm_recurring_suggest_count', String(count))
+    return count
+  },
+
+  setRecurringSuggestCount(n) {
+    sessionStorage.setItem('mm_recurring_suggest_count', String(n))
+  },
+
   async confirmRecurringCandidate(txnIds, frequency) {
     try {
       const userId = auth.currentUser?.uid

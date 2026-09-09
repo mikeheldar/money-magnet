@@ -52,6 +52,14 @@
             </div>
           </q-card-section>
         </q-card>
+        <!-- Unconfirmed repeating bills blur the roadmap's dates — the suggestion
+             list lives on a page a new user never visits, so surface the count here -->
+        <q-card v-if="recurringSuggestCount" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
+          <q-card-section class="q-py-sm">
+            <div class="text-body2 text-grey-8 q-mb-xs"><b>{{ recurringSuggestCount }} repeating {{ recurringSuggestCount === 1 ? 'bill or paycheck' : 'bills and paychecks' }} spotted</b> in your transactions. Confirm them and your forecast lands each one on its real date instead of an average.</div>
+            <q-btn no-caps dense color="primary" label="Review suggestions" to="/recurring" />
+          </q-card-section>
+        </q-card>
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Financial Dashboard</div>
@@ -284,6 +292,7 @@ export default defineComponent({
     const balanceData = ref([])
     const balanceChart = ref(null)
     const goalPace = ref([])
+    const recurringSuggestCount = ref(0)
     const spendLimitPace = ref([])
     const flexSpend = ref([])
     const mantraBanner = ref(null)
@@ -503,6 +512,17 @@ export default defineComponent({
     // -> your own mantra. Without it a new user lands on an empty chart with no
     // route to the forecast. Hidden once the two essentials exist; the mantra
     // row is the hook, not a gate.
+    // Session-cached scan (see firebase-api) — the nudge is optional chrome,
+    // so any failure just hides it, matching the pace panel's hide-don't-toast rule
+    const loadRecurringSuggest = async () => {
+      try {
+        recurringSuggestCount.value = await firebaseApi.getRecurringSuggestCount()
+      } catch (err) {
+        console.error('Error loading recurring suggestions:', err)
+        recurringSuggestCount.value = 0
+      }
+    }
+
     const setupSteps = computed(() => {
       const s = setupStatus.value
       if (!s || (s.hasTransactions && s.hasGoal)) return null
@@ -709,6 +729,7 @@ export default defineComponent({
       loadGoalPace()
       loadBeliefJournal()
       loadSetupStatus()
+      loadRecurringSuggest()
     })
 
     // Watch for period changes
@@ -738,6 +759,7 @@ export default defineComponent({
       beliefRecapInline,
       beliefAllTime,
       setupSteps,
+      recurringSuggestCount,
       formatCurrency,
       formatDay,
       coachLine,
