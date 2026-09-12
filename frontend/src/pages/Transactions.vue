@@ -526,6 +526,7 @@ import firebaseApi from '../services/firebase-api'
 import { auth, db } from '../config/firebase'
 import { collection, addDoc, query, where, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import Papa from 'papaparse'
+import { normalizeCsvRows } from '../services/csv-normalize'
 
 export default defineComponent({
   name: 'TransactionsPage',
@@ -1484,8 +1485,16 @@ export default defineComponent({
               console.warn('📥 [CSV Import] Parse warnings:', results.errors)
             }
             
-            const rawTransactions = results.data
-            console.log('📥 [CSV Import] Raw rows from CSV:', rawTransactions.length)
+            // Normalize real-bank export formats (Chase/BofA/Amex/CapOne/Mint/…)
+            // to the canonical shape; dates come out YYYY-MM-DD — the forecast
+            // engine compares date strings, so this is correctness, not polish.
+            // Throws a friendly error (caught below) when no date/amount column.
+            const normalized = normalizeCsvRows(results.data)
+            const rawTransactions = normalized.rows
+            const unparsableCount = normalized.skipped
+            console.log('📥 [CSV Import] Raw rows from CSV:', results.data.length,
+              '- normalized:', rawTransactions.length, '- unparsable:', unparsableCount,
+              '- detected columns:', normalized.detected)
 
             if (rawTransactions.length === 0) {
               $q.notify({ type: 'warning', message: 'No transactions found in file' })
@@ -1690,7 +1699,7 @@ export default defineComponent({
             
             $q.notify({ 
               type: 'positive', 
-              message: `Imported ${newTransactions.length} transactions. Created ${newAccountIds.size} accounts, ${newCategoryIds.size} categories. Skipped ${skippedCount} duplicates.`,
+              message: `Imported ${newTransactions.length} transactions. Created ${newAccountIds.size} accounts, ${newCategoryIds.size} categories. Skipped ${skippedCount} duplicates.` + (unparsableCount > 0 ? ` ${unparsableCount} rows had unreadable dates/amounts and were skipped.` : ''),
               timeout: 5000
             })
             
