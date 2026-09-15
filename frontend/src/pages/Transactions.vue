@@ -516,6 +516,51 @@
         </q-card-section>
       </q-card>
     </div>
+
+    <!-- CSV import preview — how we read your bank's file; nothing saves until Confirm -->
+    <q-dialog v-model="showImportPreview" persistent>
+      <q-card style="min-width: 340px; max-width: 480px">
+        <q-card-section class="q-pb-none">
+          <div class="text-h6">Here's how we read your file</div>
+          <div class="text-caption text-grey-7">{{ importPreview ? importPreview.fileName : '' }}</div>
+        </q-card-section>
+        <q-card-section v-if="importPreview">
+          <div class="text-body2 q-mb-xs">
+            <b>{{ importPreview.rows.length }}</b> transactions,
+            {{ importPreview.minDate }} → {{ importPreview.maxDate }}
+            <span v-if="importPreview.skipped"> · {{ importPreview.skipped }} unreadable row{{ importPreview.skipped !== 1 ? 's' : '' }} skipped</span>
+          </div>
+          <div class="text-caption text-grey-8 q-mb-sm">
+            <div v-for="m in previewMapping" :key="m[0]">
+              {{ m[0] }} ← <b>"{{ m[1] }}"</b>
+            </div>
+          </div>
+          <q-markup-table dense flat bordered>
+            <tbody>
+              <tr v-for="(r, i) in importPreview.sample" :key="i">
+                <td class="text-no-wrap">{{ r.Date }}</td>
+                <td class="ellipsis" style="max-width: 170px">{{ r.Merchant || '—' }}</td>
+                <td class="text-right" :class="parseFloat(r.Amount) < 0 ? 'text-red-8' : 'text-green-8'">
+                  {{ formatPreviewAmount(r.Amount) }}
+                </td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+          <div class="text-caption text-grey-6 q-mt-xs">
+            Nothing is saved yet — duplicates are skipped automatically on import.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey-7" @click="cancelImport" />
+          <q-btn
+            unelevated
+            color="primary"
+            :label="'Import ' + (importPreview ? importPreview.rows.length : 0) + ' transactions'"
+            @click="confirmImport"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -1464,257 +1509,74 @@ export default defineComponent({
       loadTransactions()
     })
 
+    // CSV import preview — parse + normalize only; NOTHING is written until
+    // the user confirms in the dialog. Shows exactly how the file's columns
+    // were read (trust in the header normalizer at the moment it matters)
+    // plus a sample of normalized rows.
+    const importPreview = ref(null)
+    const showImportPreview = ref(false)
+
+    const previewMapping = computed(() => {
+      const d = (importPreview.value && importPreview.value.detected) || {}
+      const out = []
+      if (d.date) out.push(['Date', d.date])
+      if (d.amount) out.push(['Amount', d.amount])
+      else if (d.debit || d.credit) out.push(['Amount', [d.debit, d.credit].filter(Boolean).join(' / ')])
+      if (d.merchant) out.push(['Merchant', d.merchant])
+      if (d.account) out.push(['Account', d.account])
+      if (d.category) out.push(['Category', d.category])
+      return out
+    })
+
+    const formatPreviewAmount = (a) => {
+      const n = parseFloat(a)
+      return (n < 0 ? '-$' : '+$') + formatCurrency(Math.abs(n))
+    }
+
     const importTransactions = (event) => {
       const file = event.target.files[0]
       if (!file) return
 
       importing.value = true
-      const importStartTime = Date.now()
-      console.log('📥 [CSV Import] ========== START ==========')
+      console.log('📥 [CSV Import] ========== PARSE ==========')
       console.log('📥 [CSV Import] File:', file.name, 'Size:', (file.size / 1024).toFixed(1), 'KB')
-      
+
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: async (results) => {
+        complete: (results) => {
           try {
-            const parseTime = Date.now() - importStartTime
-            console.log('📥 [CSV Import] Parse complete in', parseTime, 'ms')
-
             if (results.errors.length) {
               console.warn('📥 [CSV Import] Parse warnings:', results.errors)
             }
-            
+
             // Normalize real-bank export formats (Chase/BofA/Amex/CapOne/Mint/…)
             // to the canonical shape; dates come out YYYY-MM-DD — the forecast
             // engine compares date strings, so this is correctness, not polish.
             // Throws a friendly error (caught below) when no date/amount column.
             const normalized = normalizeCsvRows(results.data)
-            const rawTransactions = normalized.rows
-            const unparsableCount = normalized.skipped
             console.log('📥 [CSV Import] Raw rows from CSV:', results.data.length,
-              '- normalized:', rawTransactions.length, '- unparsable:', unparsableCount,
+              '- normalized:', normalized.rows.length, '- unparsable:', normalized.skipped,
               '- detected columns:', normalized.detected)
 
-            if (rawTransactions.length === 0) {
+            if (normalized.rows.length === 0) {
               $q.notify({ type: 'warning', message: 'No transactions found in file' })
               return
             }
 
-            // 1. Find date range
-            const dates = rawTransactions
-              .map(row => row.Date)
-              .filter(d => d)
-              .sort()
-            
-            if (dates.length === 0) throw new Error('No valid dates found')
-            
-            const minDate = dates[0]
-            const maxDate = dates[dates.length - 1]
-            
-            console.log('🔍 [CSV Import] Date range:', minDate, 'to', maxDate, '- checking for duplicates...')
-            const dedupeStartTime = Date.now()
-            
-            // 2. Fetch existing for dedupe
-            const existing = await firebaseApi.getTransactionsByDateRange(minDate, maxDate)
-            const dedupeFetchTime = Date.now() - dedupeStartTime
-            console.log('🔍 [CSV Import] Duplicate check: built existingSet from', existing.length, 'transactions in', dedupeFetchTime, 'ms')
-            
-            const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
-            console.log('🔍 [CSV Import] existingSet size:', existingSet.size, '- starting filter/map...')
-            
-            // 3. Load account and category mappings (fallback to empty if collections don't exist yet)
-            let accountMappings = []
-            let categoryMappings = []
-            try {
-              accountMappings = await firebaseApi.getAccountMappings()
-              categoryMappings = await firebaseApi.getCategoryMappings()
-            } catch (mappingErr) {
-              console.warn('[CSV Import] Could not load mappings, using empty:', mappingErr.message)
+            const dates = normalized.rows.map(row => row.Date).sort()
+            importPreview.value = {
+              fileName: file.name,
+              rows: normalized.rows,
+              skipped: normalized.skipped,
+              detected: normalized.detected,
+              minDate: dates[0],
+              maxDate: dates[dates.length - 1],
+              sample: normalized.rows.slice(0, 5)
             }
-            const accountMappingMap = new Map(
-              accountMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_account_id])
-            )
-            const categoryMappingMap = new Map(
-              categoryMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_category_id])
-            )
-            console.log('🔍 [CSV Import] Account mappings:', accountMappingMap.size, 'Category mappings:', categoryMappingMap.size)
-
-            // Build account and category maps (skip entries without names)
-            const accountMap = new Map(
-              accounts.value.filter(a => a.name).map(a => [(a.name || '').toLowerCase(), a.id])
-            )
-            const categoryMap = new Map(
-              categories.value.filter(c => c.name).map(c => [(c.name || '').toLowerCase(), c.id])
-            )
-            console.log('🔍 [CSV Import] Existing accounts:', accountMap.size, 'Existing categories:', categoryMap.size)
-
-            // Track new accounts/categories to create
-            const newAccountsToCreate = new Set()
-            const newCategoriesToCreate = new Set()
-            
-            // 4. Filter & Map
-            const newTransactions = []
-            let skippedCount = 0
-
-            for (const row of rawTransactions) {
-              if (!row.Date || !row.Amount) continue
-              
-              const amount = parseFloat(row.Amount)
-              // CSV key based on exact string match used in Set
-              const key = `${row.Date}|${amount.toFixed(2)}|${row.Merchant}`
-              
-              if (existingSet.has(key)) {
-                skippedCount++
-                continue
-              }
-              
-              // Resolve Account ID
-              let accountId = null
-              if (row.Account) {
-                const csvAcc = row.Account.toLowerCase().trim()
-                
-                // First check if there's a mapping
-                if (accountMappingMap.has(csvAcc)) {
-                  accountId = accountMappingMap.get(csvAcc)
-                } else {
-                  // Try fuzzy match with existing accounts
-                  for (const [name, id] of accountMap.entries()) {
-                    if (csvAcc.includes(name) || name.includes(csvAcc)) {
-                      accountId = id
-                      break
-                    }
-                  }
-                  
-                  // If no match, mark for creation
-                  if (!accountId) {
-                    newAccountsToCreate.add(row.Account.trim())
-                  }
-                }
-              }
-
-              // Resolve Category ID
-              let categoryId = null
-              if (row.Category) {
-                const csvCat = row.Category.toLowerCase().trim()
-                
-                // First check if there's a mapping
-                if (categoryMappingMap.has(csvCat)) {
-                  categoryId = categoryMappingMap.get(csvCat)
-                } else {
-                  // Try exact match with existing categories
-                  if (categoryMap.has(csvCat)) {
-                    categoryId = categoryMap.get(csvCat)
-                  } else {
-                    // If no match, mark for creation
-                    newCategoriesToCreate.add(row.Category.trim())
-                  }
-                }
-              }
-
-              newTransactions.push({
-                date: row.Date,
-                merchant: row.Merchant || 'Unknown',
-                description: row['Original Statement'] || row.Original_Statement || row.Notes || '',
-                amount: Math.abs(amount), 
-                type: amount < 0 ? 'expense' : 'income', 
-                category_id: categoryId,
-                category_name: row.Category || null,
-                account_id: accountId,
-                csv_account_name: row.Account || null,
-                status: 'pending' 
-              })
-            }
-            
-            // 5. Create new accounts and categories
-            console.log('🆕 [CSV Import] New accounts to create:', newAccountsToCreate.size, 'New categories to create:', newCategoriesToCreate.size)
-            
-            const newAccountIds = new Map()
-            for (const accountName of newAccountsToCreate) {
-              if (!accountName || typeof accountName !== 'string') continue
-              try {
-                const newAccount = await firebaseApi.createAccount({
-                  name: accountName.trim(),
-                  balance_current: 0,
-                  needs_mapping: true,
-                  csv_imported: true
-                })
-                newAccountIds.set(accountName.toLowerCase().trim(), newAccount.id)
-                console.log('✅ [CSV Import] Created new account:', accountName, newAccount.id)
-              } catch (err) {
-                console.error('❌ [CSV Import] Failed to create account:', accountName, err)
-              }
-            }
-            
-            const newCategoryIds = new Map()
-            for (const categoryName of newCategoriesToCreate) {
-              if (!categoryName || typeof categoryName !== 'string') continue
-              try {
-                const newCategory = await firebaseApi.createCategory({
-                  name: categoryName.trim(),
-                  needs_mapping: true,
-                  csv_imported: true
-                })
-                newCategoryIds.set(categoryName.toLowerCase().trim(), newCategory.id)
-                console.log('✅ [CSV Import] Created new category:', categoryName, newCategory.id)
-              } catch (err) {
-                console.error('❌ [CSV Import] Failed to create category:', categoryName, err)
-              }
-            }
-            
-            // 6. Update transactions with new IDs
-            for (const txn of newTransactions) {
-              if (!txn.account_id && txn.csv_account_name && typeof txn.csv_account_name === 'string') {
-                const newId = newAccountIds.get(txn.csv_account_name.toLowerCase().trim())
-                if (newId) txn.account_id = newId
-              }
-              if (!txn.category_id && txn.category_name && typeof txn.category_name === 'string') {
-                const newId = newCategoryIds.get(txn.category_name.toLowerCase().trim())
-                if (newId) txn.category_id = newId
-              }
-              // Clean up temporary fields
-              delete txn.csv_account_name
-              delete txn.category_name
-            }
-            
-            const filterTime = Date.now() - dedupeStartTime
-            console.log('✅ [CSV Import] Filter done:', newTransactions.length, 'new,', skippedCount, 'duplicates skipped in', filterTime, 'ms total')
-            console.log('✅ [CSV Import] Created', newAccountIds.size, 'new accounts,', newCategoryIds.size, 'new categories')
-            
-            if (newTransactions.length === 0) {
-              $q.notify({ type: 'info', message: `All ${skippedCount} transactions were duplicates.` })
-              return
-            }
-            
-            // 7. Batch Upload
-            console.log('📤 [CSV Import] Starting batch upload of', newTransactions.length, 'transactions...')
-            const uploadStartTime = Date.now()
-
-            await firebaseApi.batchCreateTransactions(newTransactions)
-            
-            const uploadTime = Date.now() - uploadStartTime
-            const totalTime = Date.now() - importStartTime
-            console.log('✅ [CSV Import] Upload complete in', uploadTime, 'ms. Total import:', totalTime, 'ms')
-            console.log('📥 [CSV Import] ========== DONE ==========')
-            
-            $q.notify({ 
-              type: 'positive', 
-              message: `Imported ${newTransactions.length} transactions. Created ${newAccountIds.size} accounts, ${newCategoryIds.size} categories. Skipped ${skippedCount} duplicates.` + (unparsableCount > 0 ? ` ${unparsableCount} rows had unreadable dates/amounts and were skipped.` : ''),
-              timeout: 5000
-            })
-            
-            // Switch to "All" period so user sees imported transactions (default Monthly only shows current month)
-            period.value = 'all'
-            
-            // Reload data to show new accounts/categories and transactions
-            await Promise.all([
-              loadTransactions(),
-              loadCategories(),
-              firebaseApi.getAccounts().then(accs => accounts.value = accs)
-            ])
-            
+            showImportPreview.value = true
           } catch (err) {
-            console.error('❌ [CSV Import] Import failed:', err)
+            console.error('❌ [CSV Import] Parse failed:', err)
             $q.notify({ type: 'negative', message: 'Import failed: ' + err.message })
           } finally {
             importing.value = false
@@ -1722,6 +1584,234 @@ export default defineComponent({
           }
         }
       })
+    }
+
+    const cancelImport = () => {
+      showImportPreview.value = false
+      importPreview.value = null
+      console.log('📥 [CSV Import] Cancelled at preview — nothing written')
+    }
+
+    const confirmImport = async () => {
+      const preview = importPreview.value
+      if (!preview) return
+      showImportPreview.value = false
+      importing.value = true
+      const importStartTime = Date.now()
+      console.log('📥 [CSV Import] ========== IMPORT ==========')
+      try {
+        const rawTransactions = preview.rows
+        const unparsableCount = preview.skipped
+        const minDate = preview.minDate
+        const maxDate = preview.maxDate
+
+        console.log('🔍 [CSV Import] Date range:', minDate, 'to', maxDate, '- checking for duplicates...')
+        const dedupeStartTime = Date.now()
+        
+        // 2. Fetch existing for dedupe
+        const existing = await firebaseApi.getTransactionsByDateRange(minDate, maxDate)
+        const dedupeFetchTime = Date.now() - dedupeStartTime
+        console.log('🔍 [CSV Import] Duplicate check: built existingSet from', existing.length, 'transactions in', dedupeFetchTime, 'ms')
+        
+        const existingSet = new Set(existing.map(t => `${t.date}|${parseFloat(t.amount || 0).toFixed(2)}|${t.merchant}`))
+        console.log('🔍 [CSV Import] existingSet size:', existingSet.size, '- starting filter/map...')
+        
+        // 3. Load account and category mappings (fallback to empty if collections don't exist yet)
+        let accountMappings = []
+        let categoryMappings = []
+        try {
+          accountMappings = await firebaseApi.getAccountMappings()
+          categoryMappings = await firebaseApi.getCategoryMappings()
+        } catch (mappingErr) {
+          console.warn('[CSV Import] Could not load mappings, using empty:', mappingErr.message)
+        }
+        const accountMappingMap = new Map(
+          accountMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_account_id])
+        )
+        const categoryMappingMap = new Map(
+          categoryMappings.filter(m => m.csv_name).map(m => [(m.csv_name || '').toLowerCase(), m.target_category_id])
+        )
+        console.log('🔍 [CSV Import] Account mappings:', accountMappingMap.size, 'Category mappings:', categoryMappingMap.size)
+
+        // Build account and category maps (skip entries without names)
+        const accountMap = new Map(
+          accounts.value.filter(a => a.name).map(a => [(a.name || '').toLowerCase(), a.id])
+        )
+        const categoryMap = new Map(
+          categories.value.filter(c => c.name).map(c => [(c.name || '').toLowerCase(), c.id])
+        )
+        console.log('🔍 [CSV Import] Existing accounts:', accountMap.size, 'Existing categories:', categoryMap.size)
+
+        // Track new accounts/categories to create
+        const newAccountsToCreate = new Set()
+        const newCategoriesToCreate = new Set()
+        
+        // 4. Filter & Map
+        const newTransactions = []
+        let skippedCount = 0
+
+        for (const row of rawTransactions) {
+          if (!row.Date || !row.Amount) continue
+          
+          const amount = parseFloat(row.Amount)
+          // CSV key based on exact string match used in Set
+          const key = `${row.Date}|${amount.toFixed(2)}|${row.Merchant}`
+          
+          if (existingSet.has(key)) {
+            skippedCount++
+            continue
+          }
+          
+          // Resolve Account ID
+          let accountId = null
+          if (row.Account) {
+            const csvAcc = row.Account.toLowerCase().trim()
+            
+            // First check if there's a mapping
+            if (accountMappingMap.has(csvAcc)) {
+              accountId = accountMappingMap.get(csvAcc)
+            } else {
+              // Try fuzzy match with existing accounts
+              for (const [name, id] of accountMap.entries()) {
+                if (csvAcc.includes(name) || name.includes(csvAcc)) {
+                  accountId = id
+                  break
+                }
+              }
+              
+              // If no match, mark for creation
+              if (!accountId) {
+                newAccountsToCreate.add(row.Account.trim())
+              }
+            }
+          }
+
+          // Resolve Category ID
+          let categoryId = null
+          if (row.Category) {
+            const csvCat = row.Category.toLowerCase().trim()
+            
+            // First check if there's a mapping
+            if (categoryMappingMap.has(csvCat)) {
+              categoryId = categoryMappingMap.get(csvCat)
+            } else {
+              // Try exact match with existing categories
+              if (categoryMap.has(csvCat)) {
+                categoryId = categoryMap.get(csvCat)
+              } else {
+                // If no match, mark for creation
+                newCategoriesToCreate.add(row.Category.trim())
+              }
+            }
+          }
+
+          newTransactions.push({
+            date: row.Date,
+            merchant: row.Merchant || 'Unknown',
+            description: row['Original Statement'] || row.Original_Statement || row.Notes || '',
+            amount: Math.abs(amount), 
+            type: amount < 0 ? 'expense' : 'income', 
+            category_id: categoryId,
+            category_name: row.Category || null,
+            account_id: accountId,
+            csv_account_name: row.Account || null,
+            status: 'pending' 
+          })
+        }
+        
+        // 5. Create new accounts and categories
+        console.log('🆕 [CSV Import] New accounts to create:', newAccountsToCreate.size, 'New categories to create:', newCategoriesToCreate.size)
+        
+        const newAccountIds = new Map()
+        for (const accountName of newAccountsToCreate) {
+          if (!accountName || typeof accountName !== 'string') continue
+          try {
+            const newAccount = await firebaseApi.createAccount({
+              name: accountName.trim(),
+              balance_current: 0,
+              needs_mapping: true,
+              csv_imported: true
+            })
+            newAccountIds.set(accountName.toLowerCase().trim(), newAccount.id)
+            console.log('✅ [CSV Import] Created new account:', accountName, newAccount.id)
+          } catch (err) {
+            console.error('❌ [CSV Import] Failed to create account:', accountName, err)
+          }
+        }
+        
+        const newCategoryIds = new Map()
+        for (const categoryName of newCategoriesToCreate) {
+          if (!categoryName || typeof categoryName !== 'string') continue
+          try {
+            const newCategory = await firebaseApi.createCategory({
+              name: categoryName.trim(),
+              needs_mapping: true,
+              csv_imported: true
+            })
+            newCategoryIds.set(categoryName.toLowerCase().trim(), newCategory.id)
+            console.log('✅ [CSV Import] Created new category:', categoryName, newCategory.id)
+          } catch (err) {
+            console.error('❌ [CSV Import] Failed to create category:', categoryName, err)
+          }
+        }
+        
+        // 6. Update transactions with new IDs
+        for (const txn of newTransactions) {
+          if (!txn.account_id && txn.csv_account_name && typeof txn.csv_account_name === 'string') {
+            const newId = newAccountIds.get(txn.csv_account_name.toLowerCase().trim())
+            if (newId) txn.account_id = newId
+          }
+          if (!txn.category_id && txn.category_name && typeof txn.category_name === 'string') {
+            const newId = newCategoryIds.get(txn.category_name.toLowerCase().trim())
+            if (newId) txn.category_id = newId
+          }
+          // Clean up temporary fields
+          delete txn.csv_account_name
+          delete txn.category_name
+        }
+        
+        const filterTime = Date.now() - dedupeStartTime
+        console.log('✅ [CSV Import] Filter done:', newTransactions.length, 'new,', skippedCount, 'duplicates skipped in', filterTime, 'ms total')
+        console.log('✅ [CSV Import] Created', newAccountIds.size, 'new accounts,', newCategoryIds.size, 'new categories')
+        
+        if (newTransactions.length === 0) {
+          $q.notify({ type: 'info', message: `All ${skippedCount} transactions were duplicates.` })
+          return
+        }
+        
+        // 7. Batch Upload
+        console.log('📤 [CSV Import] Starting batch upload of', newTransactions.length, 'transactions...')
+        const uploadStartTime = Date.now()
+
+        await firebaseApi.batchCreateTransactions(newTransactions)
+        
+        const uploadTime = Date.now() - uploadStartTime
+        const totalTime = Date.now() - importStartTime
+        console.log('✅ [CSV Import] Upload complete in', uploadTime, 'ms. Total import:', totalTime, 'ms')
+        console.log('📥 [CSV Import] ========== DONE ==========')
+        
+        $q.notify({ 
+          type: 'positive', 
+          message: `Imported ${newTransactions.length} transactions. Created ${newAccountIds.size} accounts, ${newCategoryIds.size} categories. Skipped ${skippedCount} duplicates.` + (unparsableCount > 0 ? ` ${unparsableCount} rows had unreadable dates/amounts and were skipped.` : ''),
+          timeout: 5000
+        })
+        
+        // Switch to "All" period so user sees imported transactions (default Monthly only shows current month)
+        period.value = 'all'
+        
+        // Reload data to show new accounts/categories and transactions
+        await Promise.all([
+          loadTransactions(),
+          loadCategories(),
+          firebaseApi.getAccounts().then(accs => accounts.value = accs)
+        ])
+      } catch (err) {
+        console.error('❌ [CSV Import] Import failed:', err)
+        $q.notify({ type: 'negative', message: 'Import failed: ' + err.message })
+      } finally {
+        importing.value = false
+        importPreview.value = null
+      }
     }
 
     return {
@@ -1773,7 +1863,13 @@ export default defineComponent({
       // Import
       fileInput,
       importing,
-      importTransactions
+      importTransactions,
+      importPreview,
+      showImportPreview,
+      previewMapping,
+      formatPreviewAmount,
+      cancelImport,
+      confirmImport
     }
   }
 })
