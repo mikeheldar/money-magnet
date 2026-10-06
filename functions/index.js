@@ -1793,3 +1793,198 @@ exports.createEndOfMonthSnapshotsScheduled = onSchedule({
   }
 })
 
+
+// ============================================================================
+// Over-pace nudges: the scheduled coach check (runs the SAME forecast engine)
+// ============================================================================
+// forecast-engine.mjs is a committed copy of frontend/src/services/
+// forecast-engine.js (Firebase deploy only packages this directory) — a test
+// in frontend/test/engine-sync.test.mjs fails the suite if the two drift;
+// refresh with `npm run sync-engine` here and commit both together.
+//
+// Each run maintains ONE living doc per goal+kind in the `nudges` collection
+// (id `${uid}_${goalId}_${kind}`) instead of piling up daily copies:
+//   - condition holds  -> refresh message + last_seen_date (status stays)
+//   - condition clears -> status 'resolved'
+//   - condition returns after resolved -> re-activated
+//   - user-dismissed nudges are NEVER re-activated, only last_seen bumped —
+//     a dismissal is an answer, not a snooze. Nothing is sent anywhere; the
+//     app surfaces these in-UI.
+
+const computeNudgesForUser = async (userId, todayStr) => {
+  const db = admin.firestore();
+  const fetchAll = async (coll) => {
+    const snap = await db.collection(coll).where('user_id', '==', userId).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  };
+  // Mirror the client's toDateString: Firestore Timestamp -> 'YYYY-MM-DD'
+  const toDateStr = (v) => {
+    if (!v) return null;
+    if (v.toDate) return v.toDate().toISOString().split('T')[0];
+    return v;
+  };
+  const deps = {
+    getAccounts: () => fetchAll('accounts'),
+    getCategories: () => fetchAll('categories'),
+    getGoals: () => fetchAll('goals'),
+    getTransactionsByDateRange: async (start, end) => {
+      // Same (user_id ==, date range) query the client runs, so the composite
+      // index already exists
+      const snap = await db.collection('transactions')
+        .where('user_id', '==', userId)
+        .where('date', '>=', start)
+        .where('date', '<=', end)
+        .get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDateStr(d.data().date) }));
+    },
+  };
+
+  const { computeForecastSeries } = await import('./forecast-engine.mjs');
+  const windowStart = new Date(todayStr); windowStart.setDate(windowStart.getDate() - 90);
+  const windowEnd = new Date(todayStr); windowEnd.setDate(windowEnd.getDate() + 365);
+  const toStr = (d) => d.toISOString().split('T')[0];
+  const series = await computeForecastSeries(deps, {
+    startDate: toStr(windowStart),
+    endDate: toStr(windowEnd),
+    grain: 'weekly',
+    today: todayStr,
+  });
+
+  const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const active = [];
+  for (const g of series.goals || []) {
+    if (!g.coach) continue;
+    const extra = fmt(g.coach.requiredExtraPerMonth);
+    active.push({
+      goal_id: g.id,
+      goal_title: g.title,
+      kind: 'goal_drift',
+      message: g.crossDate
+        ? `${g.title}: drifting — current pace lands ${g.crossDate}${g.target_date ? `, past your ${g.target_date} target` : ''}. $${extra}/mo more closes the gap.`
+        : `${g.title}: no crossing at the current pace. $${extra}/mo more gets you there${g.coach.horizonMonths ? ` in ~${g.coach.horizonMonths} months` : ''}.`,
+      data: {
+        crossDate: g.crossDate || null,
+        target_date: g.target_date || null,
+        shortfall: g.coach.shortfall,
+        requiredExtraPerMonth: g.coach.requiredExtraPerMonth,
+      },
+    });
+  }
+  for (const sl of series.spendLimits || []) {
+    if (sl.status !== 'over' && sl.status !== 'hot') continue;
+    active.push({
+      goal_id: sl.id,
+      goal_title: sl.title,
+      kind: sl.status === 'over' ? 'spend_limit_over' : 'spend_limit_hot',
+      message: sl.status === 'over'
+        ? `${sl.title}: over the cap — $${fmt(sl.spent)} spent of $${fmt(sl.target_amount)} (${sl.category_name}).`
+        : `${sl.title}: trending over — $${fmt(sl.spent)} so far, projecting $${fmt(sl.projected)} against the $${fmt(sl.target_amount)} cap.`,
+      data: {
+        spent: sl.spent,
+        target_amount: sl.target_amount,
+        projected: sl.projected,
+        category_name: sl.category_name,
+        period_end: sl.end,
+      },
+    });
+  }
+
+  const nudgesRef = db.collection('nudges');
+  const existingSnap = await nudgesRef.where('user_id', '==', userId).get();
+  const existingByKey = {};
+  existingSnap.docs.forEach(d => {
+    existingByKey[`${d.data().goal_id}|${d.data().kind}`] = d;
+  });
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const activeKeys = new Set();
+  let created = 0, refreshed = 0, resolved = 0;
+
+  for (const n of active) {
+    const key = `${n.goal_id}|${n.kind}`;
+    activeKeys.add(key);
+    const prev = existingByKey[key];
+    if (prev && prev.data().status === 'dismissed') {
+      await prev.ref.update({ message: n.message, data: n.data, last_seen_date: todayStr, updated_at: now });
+      continue;
+    }
+    if (prev && prev.data().status === 'active') {
+      await prev.ref.update({ message: n.message, data: n.data, last_seen_date: todayStr, updated_at: now });
+      refreshed++;
+      continue;
+    }
+    // New, or previously resolved and the condition is back
+    await nudgesRef.doc(`${userId}_${n.goal_id}_${n.kind}`).set({
+      user_id: userId,
+      goal_id: n.goal_id,
+      goal_title: n.goal_title,
+      kind: n.kind,
+      message: n.message,
+      data: n.data,
+      status: 'active',
+      first_seen_date: todayStr,
+      last_seen_date: todayStr,
+      resolved_date: null,
+      created_at: now,
+      updated_at: now,
+    }, { merge: true });
+    created++;
+  }
+
+  for (const [key, d] of Object.entries(existingByKey)) {
+    if (!activeKeys.has(key) && d.data().status === 'active') {
+      await d.ref.update({ status: 'resolved', resolved_date: todayStr, updated_at: now });
+      resolved++;
+    }
+  }
+
+  return { active: active.length, created, refreshed, resolved };
+};
+
+const todayInET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+// Daily at 6:30 AM ET — after the 6:00 AM Plaid transaction sync, so verdicts
+// are computed on this morning's data
+exports.overPaceNudgeScheduled = onSchedule({
+  schedule: '30 6 * * *',
+  timeZone: 'America/New_York',
+  retryConfig: {
+    retryCount: 2,
+    maxRetryDuration: '60s'
+  }
+}, async (event) => {
+  const todayStr = todayInET();
+  console.log(`🔄 [Scheduled] Over-pace nudge check for ${todayStr}...`);
+
+  const goalsSnap = await admin.firestore().collection('goals').get();
+  const userIds = [...new Set(goalsSnap.docs.map(d => d.data().user_id).filter(Boolean))];
+  if (userIds.length === 0) {
+    console.log('ℹ️ [Scheduled] No users with goals. Nothing to check.');
+    return { users: 0 };
+  }
+
+  let totals = { active: 0, created: 0, refreshed: 0, resolved: 0 }, failedUsers = 0;
+  for (const uid of userIds) {
+    try {
+      const r = await computeNudgesForUser(uid, todayStr);
+      totals.active += r.active; totals.created += r.created;
+      totals.refreshed += r.refreshed; totals.resolved += r.resolved;
+      console.log(`✅ [Scheduled] nudges for ${uid}: ${r.active} active (+${r.created} new, ~${r.refreshed} refreshed, ✓${r.resolved} resolved)`);
+    } catch (userError) {
+      failedUsers++;
+      console.error(`❌ [Scheduled] Nudge check failed for user ${uid}:`, userError);
+    }
+  }
+
+  console.log(`✅ [Scheduled] Over-pace nudge check complete: ${JSON.stringify(totals)}, ${failedUsers} user(s) failed`);
+  return { users: userIds.length, ...totals, failedUsers };
+});
+
+// On-demand version for the signed-in user — lets the app (and Michael, from
+// the console) run the exact scheduled logic without waiting for 6:30 AM
+exports.computeOverPaceNudges = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+  return await computeNudgesForUser(request.auth.uid, todayInET());
+});
