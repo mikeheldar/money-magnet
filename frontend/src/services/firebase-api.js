@@ -1601,6 +1601,42 @@ export default {
     sessionStorage.setItem('mm_recurring_suggest_count', String(n))
   },
 
+  // Over-pace nudges maintained by the scheduled Cloud Function (one living
+  // doc per goal+kind in the 'nudges' collection). Queried by user only and
+  // status-filtered client-side so no composite index is needed — mirrors the
+  // function's own query. Sorted worst-news-first like the pace panel.
+  async getActiveNudges() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+      const snap = await getDocs(query(collection(db, 'nudges'), where('user_id', '==', userId)))
+      const rank = n => n.kind === 'spend_limit_over' ? 0 : n.kind === 'goal_drift' ? 1 : 2
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(n => n.status === 'active')
+        .sort((a, b) => rank(a) - rank(b))
+    } catch (error) {
+      console.error('Error fetching nudges:', error)
+      throw new Error(`Failed to fetch nudges: ${error.message}`)
+    }
+  },
+
+  // Dismissal is the user's permanent "stop telling me" for that goal+kind —
+  // the scheduled run bumps last_seen on dismissed docs but never re-raises them
+  async dismissNudge(nudgeId) {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+      const nudgeRef = doc(db, 'nudges', nudgeId)
+      const snap = await getDoc(nudgeRef)
+      if (!snap.exists() || snap.data().user_id !== userId) throw new Error('Nudge not found')
+      await updateDoc(nudgeRef, { status: 'dismissed', updated_at: serverTimestamp() })
+    } catch (error) {
+      console.error('Error dismissing nudge:', error)
+      throw new Error(`Failed to dismiss nudge: ${error.message}`)
+    }
+  },
+
   async confirmRecurringCandidate(txnIds, frequency) {
     try {
       const userId = auth.currentUser?.uid

@@ -32,6 +32,18 @@
                 <q-btn no-caps dense color="primary" label="Review suggestions" to="/recurring" />
               </q-card-section>
             </q-card>
+            <!-- Same nudge surface as the Dashboard (two-surfaces-in-lockstep) -->
+            <template v-if="setupNeeded !== 'data'">
+              <q-card v-for="n in activeNudges" :key="n.id" flat bordered class="q-mb-md"
+                :class="n.kind === 'spend_limit_over' ? 'bg-red-1' : 'bg-orange-1'" style="border-radius: 12px;">
+                <q-card-section class="q-py-sm row items-start no-wrap">
+                  <div class="text-body2 text-grey-8 col">{{ n.message }}</div>
+                  <q-btn flat round dense size="sm" icon="close" class="q-ml-sm text-grey-7" @click="dismissNudge(n)">
+                    <q-tooltip>Dismiss — this one won't be raised again</q-tooltip>
+                  </q-btn>
+                </q-card-section>
+              </q-card>
+            </template>
 
             <div v-if="summaryCards && setupNeeded !== 'data'" class="row q-col-gutter-md q-mb-md">
               <div class="col-12 col-md-4">
@@ -584,6 +596,26 @@ export default defineComponent({
       }
     }
 
+    // Active over-pace nudges from the scheduled coach check — optional chrome,
+    // so failures hide the cards (the pace panel's hide-don't-toast rule)
+    const activeNudges = ref([])
+    const loadNudges = async () => {
+      try {
+        activeNudges.value = await firebaseApi.getActiveNudges()
+      } catch (err) {
+        console.error('Error loading nudges:', err)
+        activeNudges.value = []
+      }
+    }
+    const dismissNudge = async (n) => {
+      try {
+        await firebaseApi.dismissNudge(n.id)
+        activeNudges.value = activeNudges.value.filter(x => x.id !== n.id)
+      } catch (err) {
+        console.error('Error dismissing nudge:', err)
+      }
+    }
+
     const setupNeeded = computed(() => {
       const s = setupStatus.value
       if (!s) return null
@@ -838,6 +870,7 @@ export default defineComponent({
         .catch(err => console.error('Error loading setup status:', err))
       loadBeliefJournal()
       loadRecurringSuggest()
+      loadNudges()
     })
 
     const selectAllAccounts = () => {
@@ -887,6 +920,8 @@ export default defineComponent({
       spendLimitCards,
       setupNeeded,
       recurringSuggestCount,
+      activeNudges,
+      dismissNudge,
       beliefRecapInline,
       limitCardClass,
       limitRemainingLabel,

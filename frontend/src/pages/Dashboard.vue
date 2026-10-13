@@ -60,6 +60,17 @@
             <q-btn no-caps dense color="primary" label="Review suggestions" to="/recurring" />
           </q-card-section>
         </q-card>
+        <!-- Over-pace nudges from the scheduled coach check ('nudges' collection,
+             written daily by the Cloud Function) — dismiss is permanent per goal+kind -->
+        <q-card v-for="n in activeNudges" :key="n.id" flat bordered class="q-mb-md"
+          :class="n.kind === 'spend_limit_over' ? 'bg-red-1' : 'bg-orange-1'" style="border-radius: 12px;">
+          <q-card-section class="q-py-sm row items-start no-wrap">
+            <div class="text-body2 text-grey-8 col">{{ n.message }}</div>
+            <q-btn flat round dense size="sm" icon="close" class="q-ml-sm text-grey-7" @click="dismissNudge(n)">
+              <q-tooltip>Dismiss — this one won't be raised again</q-tooltip>
+            </q-btn>
+          </q-card-section>
+        </q-card>
         <q-card style="border-radius: 12px;">
           <q-card-section>
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Financial Dashboard</div>
@@ -523,6 +534,26 @@ export default defineComponent({
       }
     }
 
+    // Active over-pace nudges from the scheduled coach check — optional chrome,
+    // so failures hide the cards (the pace panel's hide-don't-toast rule)
+    const activeNudges = ref([])
+    const loadNudges = async () => {
+      try {
+        activeNudges.value = await firebaseApi.getActiveNudges()
+      } catch (err) {
+        console.error('Error loading nudges:', err)
+        activeNudges.value = []
+      }
+    }
+    const dismissNudge = async (n) => {
+      try {
+        await firebaseApi.dismissNudge(n.id)
+        activeNudges.value = activeNudges.value.filter(x => x.id !== n.id)
+      } catch (err) {
+        console.error('Error dismissing nudge:', err)
+      }
+    }
+
     const setupSteps = computed(() => {
       const s = setupStatus.value
       if (!s || (s.hasTransactions && s.hasGoal)) return null
@@ -730,6 +761,7 @@ export default defineComponent({
       loadBeliefJournal()
       loadSetupStatus()
       loadRecurringSuggest()
+      loadNudges()
     })
 
     // Watch for period changes
@@ -760,6 +792,8 @@ export default defineComponent({
       beliefAllTime,
       setupSteps,
       recurringSuggestCount,
+      activeNudges,
+      dismissNudge,
       formatCurrency,
       formatDay,
       coachLine,
