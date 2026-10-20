@@ -199,6 +199,12 @@
                       </div>
                     </div>
                   </div>
+                  <div class="q-mt-xs">
+                    <q-btn flat dense no-caps size="sm" color="primary" icon="refresh" label="Check my pace now"
+                      :loading="nudgeChecking" @click="checkNudgesNow">
+                      <q-tooltip>Run the coach check now — the same one that runs every morning</q-tooltip>
+                    </q-btn>
+                  </div>
                 </q-card-section>
               </q-card>
             </div>
@@ -615,6 +621,23 @@ export default defineComponent({
         console.error('Error dismissing nudge:', err)
       }
     }
+    // "Check now" — on-demand run of the scheduled coach check, then re-read
+    // the nudges it maintained so the cards above reflect the fresh verdicts
+    const nudgeChecking = ref(false)
+    const checkNudgesNow = async () => {
+      nudgeChecking.value = true
+      try {
+        const r = await firebaseApi.runNudgeCheck()
+        await loadNudges()
+        $q.notify(r.active
+          ? { type: 'warning', message: `Coach check done — ${r.active} thing${r.active === 1 ? '' : 's'} to look at` }
+          : { type: 'positive', message: 'Coach check done — all clear, you are on pace' })
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Coach check failed' })
+      } finally {
+        nudgeChecking.value = false
+      }
+    }
 
     const setupNeeded = computed(() => {
       const s = setupStatus.value
@@ -922,6 +945,8 @@ export default defineComponent({
       recurringSuggestCount,
       activeNudges,
       dismissNudge,
+      nudgeChecking,
+      checkNudgesNow,
       beliefRecapInline,
       limitCardClass,
       limitRemainingLabel,

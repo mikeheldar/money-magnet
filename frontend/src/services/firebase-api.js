@@ -1637,6 +1637,26 @@ export default {
     }
   },
 
+  // On-demand twin of the scheduled coach check (computeOverPaceNudges onCall)
+  // — runs the exact 6:30 AM logic for the signed-in user, so "did committing
+  // just fix it?" gets an instant answer instead of waiting for tomorrow
+  async runNudgeCheck() {
+    try {
+      const userId = auth.currentUser?.uid
+      if (!userId) throw new Error('Not authenticated')
+
+      const { httpsCallable } = await import('firebase/functions')
+      const { functions } = await import('../config/firebase')
+      const checkNow = httpsCallable(functions, 'computeOverPaceNudges', { timeout: 120000 })
+
+      const result = await checkNow({})
+      return result.data // { active, created, refreshed, resolved }
+    } catch (error) {
+      console.error('Error running nudge check:', error)
+      throw new Error(`Failed to run the coach check: ${error.message || error.code || 'Unknown error'}`)
+    }
+  },
+
   async confirmRecurringCandidate(txnIds, frequency) {
     try {
       const userId = auth.currentUser?.uid
