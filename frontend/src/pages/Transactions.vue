@@ -540,12 +540,24 @@
               <tr v-for="(r, i) in importPreview.sample" :key="i">
                 <td class="text-no-wrap">{{ r.Date }}</td>
                 <td class="ellipsis" style="max-width: 170px">{{ r.Merchant || '—' }}</td>
-                <td class="text-right" :class="parseFloat(r.Amount) < 0 ? 'text-red-8' : 'text-green-8'">
-                  {{ formatPreviewAmount(r.Amount) }}
+                <td class="text-right" :class="previewAmt(r) < 0 ? 'text-red-8' : 'text-green-8'">
+                  {{ formatPreviewAmount(previewAmt(r)) }}
                 </td>
               </tr>
             </tbody>
           </q-markup-table>
+          <div v-if="flipHint" class="text-caption text-orange-8 q-mt-xs">
+            Almost every row reads as money in — some banks (e.g. Discover) export
+            purchases as positive. If these are mostly purchases, flip the signs.
+          </div>
+          <q-toggle
+            v-model="flipSigns"
+            dense
+            size="sm"
+            color="primary"
+            label="Flip signs — amounts are reversed"
+            class="q-mt-xs"
+          />
           <div class="text-caption text-grey-6 q-mt-xs">
             Nothing is saved yet — duplicates are skipped automatically on import.
           </div>
@@ -1533,6 +1545,27 @@ export default defineComponent({
       return (n < 0 ? '-$' : '+$') + formatCurrency(Math.abs(n))
     }
 
+    // User-controlled global sign flip for the whole file (the remedy for the
+    // normalizer's documented Discover limitation: purchases exported positive
+    // with no type column import as income). Visible in the sample rows live;
+    // applied to every row only at Confirm. Never auto-applied.
+    const flipSigns = ref(false)
+    const previewAmt = (r) => {
+      const n = parseFloat(r.Amount)
+      return flipSigns.value ? -n : n
+    }
+    // Discover-shaped file: one signed amount column, no type column and no
+    // debit/credit split to sign it, yet nearly every row is positive.
+    const flipHint = computed(() => {
+      const p = importPreview.value
+      if (!p) return false
+      const d = p.detected || {}
+      if (!d.amount || d.type || d.debit || d.credit) return false
+      if (p.rows.length < 5) return false
+      const pos = p.rows.filter(r => parseFloat(r.Amount) > 0).length
+      return pos / p.rows.length >= 0.9
+    })
+
     const importTransactions = (event) => {
       const file = event.target.files[0]
       if (!file) return
@@ -1574,6 +1607,7 @@ export default defineComponent({
               maxDate: dates[dates.length - 1],
               sample: normalized.rows.slice(0, 5)
             }
+            flipSigns.value = false
             showImportPreview.value = true
           } catch (err) {
             console.error('❌ [CSV Import] Parse failed:', err)
@@ -1589,6 +1623,7 @@ export default defineComponent({
     const cancelImport = () => {
       showImportPreview.value = false
       importPreview.value = null
+      flipSigns.value = false
       console.log('📥 [CSV Import] Cancelled at preview — nothing written')
     }
 
@@ -1600,7 +1635,10 @@ export default defineComponent({
       const importStartTime = Date.now()
       console.log('📥 [CSV Import] ========== IMPORT ==========')
       try {
-        const rawTransactions = preview.rows
+        const rawTransactions = flipSigns.value
+          ? preview.rows.map(r => ({ ...r, Amount: String(-parseFloat(r.Amount)) }))
+          : preview.rows
+        if (flipSigns.value) console.log('📥 [CSV Import] Sign flip ON — all amounts negated')
         const unparsableCount = preview.skipped
         const minDate = preview.minDate
         const maxDate = preview.maxDate
@@ -1868,6 +1906,9 @@ export default defineComponent({
       showImportPreview,
       previewMapping,
       formatPreviewAmount,
+      flipSigns,
+      flipHint,
+      previewAmt,
       cancelImport,
       confirmImport
     }
