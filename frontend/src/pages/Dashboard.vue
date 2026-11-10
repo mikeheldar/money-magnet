@@ -37,6 +37,14 @@
             </div>
           </q-card-section>
         </q-card>
+        <!-- Sample-data mode banner — parity with Forecast.vue -->
+        <q-banner v-if="sampleActive" rounded dense class="bg-orange-1 text-grey-9 q-mb-md">
+          <template v-slot:avatar><q-icon name="science" color="orange-8" /></template>
+          You're exploring with <b>sample data</b> &mdash; every number on this page is made up. Clear it before adding your real money.
+          <template v-slot:action>
+            <q-btn flat no-caps color="orange-9" label="Clear sample data" :loading="sampleClearing" @click="clearSample" />
+          </template>
+        </q-banner>
         <!-- First-run path: money data -> a save-up goal -> your mantra; hidden
              once transactions + a goal exist and the roadmap can draw itself -->
         <q-card v-if="setupSteps" flat bordered class="q-mb-md" style="border-radius: 12px; border-left: 4px solid #3BA99F;">
@@ -773,6 +781,36 @@ export default defineComponent({
       })
     }
 
+    // Sample-data mode — banner + one-tap clear (seeding lives on the Forecast
+    // on-ramp); clearing re-runs every loader this page draws from
+    const sampleActive = ref(false)
+    const sampleClearing = ref(false)
+    const loadSampleActive = async () => {
+      try {
+        sampleActive.value = await firebaseApi.hasSampleData()
+      } catch (err) {
+        console.error('Error checking sample data:', err)
+        sampleActive.value = false
+      }
+    }
+    const clearSample = async () => {
+      sampleClearing.value = true
+      try {
+        await firebaseApi.clearSampleData()
+        sampleActive.value = false
+        await loadSummary()
+        await loadBalanceData()
+        loadGoalPace()
+        loadSetupStatus()
+        loadRecurringSuggest()
+        $q.notify({ type: 'positive', message: 'Sample data cleared — ready for your real money' })
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Could not clear sample data' })
+      } finally {
+        sampleClearing.value = false
+      }
+    }
+
     onMounted(async () => {
       await loadSummary()
       // Wait a bit for the canvas to be available
@@ -783,6 +821,7 @@ export default defineComponent({
       loadSetupStatus()
       loadRecurringSuggest()
       loadNudges()
+      loadSampleActive()
     })
 
     // Watch for period changes
@@ -798,6 +837,9 @@ export default defineComponent({
     return {
       period,
       summary,
+      sampleActive,
+      sampleClearing,
+      clearSample,
       balanceGroupBy,
       balanceData,
       balanceChart,

@@ -7,6 +7,15 @@
             <div class="text-h5 q-mb-md" style="color: #3BA99F; font-weight: 600;">Balance Forecast</div>
             <p class="text-body2 text-grey-7 q-mb-md">Your money's road: real balances in the past, and ahead each recurring bill and paycheck lands on its scheduled date while day-to-day spend flows at your recent baseline. "Now" is at the center.</p>
 
+            <!-- Sample-data mode banner — every number below is made up -->
+            <q-banner v-if="sampleActive" rounded dense class="bg-orange-1 text-grey-9 q-mb-md">
+              <template v-slot:avatar><q-icon name="science" color="orange-8" /></template>
+              You're exploring with <b>sample data</b> &mdash; every number on this page is made up. Clear it before adding your real money.
+              <template v-slot:action>
+                <q-btn flat no-caps color="orange-9" label="Clear sample data" :loading="sampleClearing" @click="clearSample" />
+              </template>
+            </q-banner>
+
             <!-- First-run empty states — same essentials test as the Dashboard
                  Get-set-up checklist, so the wedge page never dead-ends a new user -->
             <q-card v-if="setupNeeded === 'data'" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
@@ -15,6 +24,8 @@
                 <div class="text-body2 text-grey-8 q-mb-sm">Add your money data and this page becomes a roadmap &mdash; one line from where you've been to your goal, with the date you cross it.</div>
                 <q-btn no-caps color="primary" label="Connect bank" to="/accounts" class="q-mr-sm" />
                 <q-btn no-caps outline color="primary" label="Import CSV" to="/transactions" />
+                <q-btn no-caps flat color="primary" label="Explore with sample data" :loading="sampleSeeding" @click="seedSample" class="q-ml-sm" />
+                <div class="text-caption text-grey-6 q-mt-sm">Not ready to connect anything? Look around with made-up money first &mdash; you can clear it anytime.</div>
               </q-card-section>
             </q-card>
             <q-card v-else-if="setupNeeded === 'goal'" flat bordered class="bg-teal-1 q-mb-md" style="border-radius: 12px;">
@@ -886,6 +897,56 @@ export default defineComponent({
       })
     }
 
+    // Sample-data mode — seed from the on-ramp, banner + one-tap clear while
+    // active; seeding/clearing re-runs the essentials test + redraws the road
+    const sampleActive = ref(false)
+    const sampleSeeding = ref(false)
+    const sampleClearing = ref(false)
+    const loadSampleActive = async () => {
+      try {
+        sampleActive.value = await firebaseApi.hasSampleData()
+      } catch (err) {
+        console.error('Error checking sample data:', err)
+        sampleActive.value = false
+      }
+    }
+    const reloadAfterSampleFlip = async () => {
+      try {
+        setupStatus.value = await firebaseApi.getSetupStatus()
+      } catch (err) {
+        console.error('Error reloading setup status:', err)
+      }
+      selectedAccountIds.value = []
+      await loadForecastSeries()
+      loadRecurringSuggest()
+    }
+    const seedSample = async () => {
+      sampleSeeding.value = true
+      try {
+        await firebaseApi.seedSampleData()
+        sampleActive.value = true
+        await reloadAfterSampleFlip()
+        $q.notify({ type: 'positive', message: 'Sample money loaded — this is what your roadmap will look like' })
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Could not load sample data' })
+      } finally {
+        sampleSeeding.value = false
+      }
+    }
+    const clearSample = async () => {
+      sampleClearing.value = true
+      try {
+        await firebaseApi.clearSampleData()
+        sampleActive.value = false
+        await reloadAfterSampleFlip()
+        $q.notify({ type: 'positive', message: 'Sample data cleared — ready for your real money' })
+      } catch (err) {
+        $q.notify({ type: 'negative', message: err.message || 'Could not clear sample data' })
+      } finally {
+        sampleClearing.value = false
+      }
+    }
+
     onMounted(() => {
       loadForecastSeries()
       firebaseApi.getSetupStatus()
@@ -894,6 +955,7 @@ export default defineComponent({
       loadBeliefJournal()
       loadRecurringSuggest()
       loadNudges()
+      loadSampleActive()
     })
 
     const selectAllAccounts = () => {
@@ -942,6 +1004,11 @@ export default defineComponent({
       goalCardClass,
       spendLimitCards,
       setupNeeded,
+      sampleActive,
+      sampleSeeding,
+      sampleClearing,
+      seedSample,
+      clearSample,
       recurringSuggestCount,
       activeNudges,
       dismissNudge,

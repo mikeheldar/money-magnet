@@ -1356,6 +1356,119 @@ export default {
     }
   },
 
+  // ── Sample-data mode ──────────────────────────────────────────────────
+  // "Explore with sample data" on the first-run on-ramp: ~6 months of
+  // deterministic, clearly-labeled fake money (every doc is_sample:true,
+  // every merchant prefixed "Sample") so a brand-new user can see the
+  // roadmap and its crossing date BEFORE trusting us with a bank login or
+  // a CSV. Clearing deletes exactly the flagged docs and nothing else.
+  async seedSampleData() {
+    const userId = auth.currentUser?.uid
+    if (!userId) throw new Error('Not authenticated')
+    const status = await this.getSetupStatus()
+    if (status.hasTransactions) {
+      throw new Error('You already have transaction data — sample mode is only for a fresh start')
+    }
+
+    const account = await this.createAccount({
+      name: 'Sample Checking',
+      balance_current: 2350,
+      is_sample: true
+    })
+
+    const pad = n => String(n).padStart(2, '0')
+    const localDay = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    const rows = []
+    const push = (d, merchant, categoryName, amount, recurringFreq = null) => {
+      rows.push({
+        date: localDay(d),
+        merchant,
+        description: '',
+        amount: Math.abs(amount),
+        type: amount < 0 ? 'expense' : 'income',
+        category_id: null,
+        category_name: categoryName,
+        account_id: account.id,
+        recurring: !!recurringFreq,
+        recurring_frequency: recurringFreq,
+        is_sample: true
+      })
+    }
+
+    // Walk the last ~6 months up to YESTERDAY (local) — never "today", so the
+    // engine's UTC clock can never file a sample row as future. Deterministic:
+    // the same calendar day always yields the same rows and amounts.
+    const DAYS = 180
+    const start = new Date()
+    start.setHours(12, 0, 0, 0)
+    start.setDate(start.getDate() - DAYS)
+    for (let i = 0; i < DAYS; i++) {
+      const d = new Date(start)
+      d.setDate(start.getDate() + i)
+      const dom = d.getDate()
+      const epochDays = Math.floor(d.getTime() / 864e5)
+      if (epochDays % 7 === 2) push(d, 'Sample Employer — Payroll', 'Income', 1050, 'weekly')
+      if (dom === 1) push(d, 'Sample Apartments — Rent', 'Housing', -1400, 'monthly')
+      if (dom === 12) push(d, 'Sample Power & Water', 'Utilities', -118, 'monthly')
+      if (dom === 20) push(d, 'Sample Streaming Co.', 'Subscriptions', -34, 'monthly')
+      if (i % 4 === 1) push(d, 'Sample Grocery Mart', 'Groceries', -(62 + ((i * 7) % 41)))
+      if (i % 3 === 0) push(d, 'Sample Coffee Co.', 'Dining out', -(9 + ((i * 5) % 14)))
+      if (i % 7 === 3) push(d, 'Sample Fuel Stop', 'Gas', -(38 + ((i * 3) % 18)))
+    }
+    await this.batchCreateTransactions(rows)
+
+    const goal = await this.createGoal({
+      title: 'Sample goal: $8,000 emergency fund',
+      target_amount: 8000,
+      goal_type: 'save_up',
+      pinned: true,
+      is_sample: true
+    })
+    return { account_id: account.id, transactions: rows.length, goal_id: goal.id }
+  },
+
+  async hasSampleData() {
+    const userId = auth.currentUser?.uid
+    if (!userId) throw new Error('Not authenticated')
+    const txnSnap = await getDocs(query(
+      collection(db, 'transactions'),
+      where('user_id', '==', userId),
+      where('is_sample', '==', true),
+      limit(1)
+    ))
+    if (!txnSnap.empty) return true
+    // A sample account/goal can outlive the transactions only if a clear died
+    // halfway — still report sample mode so the banner (and its Clear) returns
+    const accSnap = await getDocs(query(
+      collection(db, 'accounts'),
+      where('user_id', '==', userId),
+      where('is_sample', '==', true),
+      limit(1)
+    ))
+    return !accSnap.empty
+  },
+
+  async clearSampleData() {
+    const userId = auth.currentUser?.uid
+    if (!userId) throw new Error('Not authenticated')
+    let removed = 0
+    for (const collName of ['transactions', 'goals', 'accounts']) {
+      const snap = await getDocs(query(
+        collection(db, collName),
+        where('user_id', '==', userId),
+        where('is_sample', '==', true)
+      ))
+      const refs = snap.docs.map(d => d.ref)
+      for (let i = 0; i < refs.length; i += 400) {
+        const batch = writeBatch(db)
+        refs.slice(i, i + 400).forEach(r => batch.delete(r))
+        await batch.commit()
+      }
+      removed += refs.length
+    }
+    return { removed }
+  },
+
   async getGoals() {
     try {
       const userId = auth.currentUser?.uid
